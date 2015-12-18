@@ -171,21 +171,21 @@ class Buffer(object):
 
 
 class RBuffer(object):
-    def __init__(self,fname,header,nmax=8000000,filenside=16):
+    def __init__(self,fname,header,nmax=8000000):
         self.pbuff = np.zeros(nmax*3,dtype='f4')
         self.vbuff = np.zeros(nmax*3,dtype='f4')
         self.ibuff = np.zeros(nmax,dtype='u8')
-        self.pidx = np.zeros(12*filenside**2,dtype='i8')
+        self.pidx = np.zeros(12*header[1]**2,dtype='i8')
 
         self.ncurr = 0
         self.dumpcount = 0
         self.nwritten = 0
         self.fname = fname
         self.nmax = nmax
-        self.filenside = header[2]
+        self.filenside = header[1]
         self.fileorder = int(np.log2(self.filenside))
         self.header = header
-        self.hdrfmt = 'fQIdddd'
+        self.hdrfmt = 'QIIfdddd'
 
     def sort_by_peano(self):
         pix = hp.vec2pix(self.filenside, self.pbuff[:3*self.ncurr:3], \
@@ -206,7 +206,7 @@ class RBuffer(object):
         pidx = np.array(nidx, dtype='i8')
         nparts = np.hstack([pidx[1:]-pidx[:-1], np.array([len(pix)-pidx[-1]])])
         self.pidx[pix[pidx]] = nparts
-        self.header[1] = len(pix)
+        self.header[0] = len(pix)
 
     def write(self):
         self.sort_by_peano()
@@ -254,11 +254,21 @@ class RBuffer(object):
             self.ncurr += nleft
 
 
-def write_to_redshift_cells_buff(filepaths, outbase, cosmology, filenside=16, buffersize=1000000, 
-                                 rmin=0, rmax=4000, rstep=25):
+def write_to_redshift_cells_buff(filepaths, outbase, cosmology, indexnside=16, lfilenside=1, 
+                                 hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
+                                 rmax=4000, rstep=25, boxsize=1050, pmass=3.16):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
-    cell files
+    cell files. 
+    
+    parameters:
+    lfilenside: int
+        The healpix nside to start with
+    hfilenside: int
+        The highest nside that we want to use
+    rr0: float
+        The radius at which we want to perform our first refinement. Further refinements
+        will be performed at r_n = rr0*sqrt(2)^n.
     """
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
@@ -266,13 +276,32 @@ def write_to_redshift_cells_buff(filepaths, outbase, cosmology, filenside=16, bu
 
     rbins = np.linspace(rmin,rmax,(rmax-rmin)//rstep+1)
     rbins2 = rbins*rbins
+
+    #determine refinement radii
+    rr = [rr0]
+    while rr[-1]<rmax:
+        rr.append(rr[-1]*np.sqrt(2))
+        
+    #determine nside of each radial bin
+    rnside = np.zeros(len(rbins)-1, dtype=np.int32)
+    rnside[0] = lfilenside
+    nr = 0
+    for i, r in enumerate(rbins[1:-1]):
+        #if lower edge of radial bin greater than next refinement
+        #radius. refine the grid
+        if r>rr[nr]: nr+=1
+        rnside[i+1] = lfilenside*2**nr
+        if (hfilenside!=None) & (rnside[i+1]>hfilenside):
+            rnside[i+1] = hfilenside
+
+    print('Max number of refinements: {0}'.format(nr))
+    print('Maximum nside: {0}'.format(rnside[-1]))
+    print('Radii to refine at: {0}'.format(rr))
     
-    buffs = {}
-    header = [1050.0, 0, filenside, 3.16, cosmology[0], cosmology[1], cosmology[2]]
+    header = [0, indexnside, rnside[0], boxsize, pmass, cosmology[0], cosmology[1], cosmology[2]]
         
     nfiles = len(filepaths)
-    
-    
+    buffs = {}
     for fnum,filepath in enumerate(filepaths):
         tprint('    file %6d of %6d' % (fnum+1,nfiles))
         block = filepath.split('/')[-1].split('.')[-1]
@@ -284,27 +313,28 @@ def write_to_redshift_cells_buff(filepaths, outbase, cosmology, filenside=16, bu
         tprint('    read data')
         
         r2 = pos[:,0]**2 + pos[:,1]**2 + pos[:,2]**2
-        bins = np.ndarray(len(pos), dtype=np.int32)
-        
-        #Index by radial bin
-        bins = np.digitize(r2, rbins2)
-        
+        pix = hp.vec2pix(rnside[-1], pos[:,0], pos[:,1], pos[:,2], nest=True)
+        idxdtype = np.dtype([('pidx', np.int32), ('ridx', np.int32)])
+        bins = np.ndarray(len(pos), dtype=idxdtype)
+
+        #Index by radial bin and highest order hpix cell
+        bins['ridx'] = np.digitize(r2, rbins2)
+        bins['pidx'] = np.digitize(pix, np.arange(12*rnside[-1]**2))
+
         tprint('    made indexes')
         
         #sort indices
-        idx = bins.argsort()
-        
+        idx = bins.argsort(order=['ridx','pidx'])
         pos = pos[idx,:]
         vel = vel[idx,:]
         ids = ids[idx]
         bins = bins[idx]
-        del idx
+        del idx, pix
         
         tprint('    sorted data')
         
         #create index into radial cells
-        rinc = bins[1:]-bins[:-1]
-        
+        rinc = bins['ridx'][1:]-bins['ridx'][:-1]
         idx, = np.where(rinc!=0)
         idx = list(idx+1)
         nidx = [0]
@@ -319,32 +349,53 @@ def write_to_redshift_cells_buff(filepaths, outbase, cosmology, filenside=16, bu
             else:
                 end = idx[i+1]
 
-            rind = bins[start]
-            deltan = end - start
-            tprint('    Number of particles in bin {0}: {1}'.format(rind, deltan))
-            nwrit += deltan
-            
-            if rind not in buffs:
-                buffs[rind] = RBuffer(outbase+'_{0}_{1}'.format(bins[start], block), header,
-                                      nmax=buffersize)
-            buffs[rind].add(pos[start:end,:].flatten(), vel[start:end,:].flatten(),
-                            ids[start:end])
-            
+            rind = bins['ridx'][start]
+            header[2] = rnside[rind]
+            print('Working on radial bin with nside = {0}'.format(rnside[rind]))
+            pix = hp.vec2pix(rnside[rind], pos[start:end,0], pos[start:end,1],
+                             pos[start:end,2])
 
+            pinc = pix[1:]-pix[:-1]
+            pidx, = np.where(pinc!=0)
+            pidx = list(pidx+1)
+            nidx = [0]
+            nidx.extend(pidx)
+            pidx = np.array(nidx,dtype='i8')
+            
+            for j, pstart in enumerate(pidx):
+                if j==(len(pidx)-1):
+                    pend = len(pix)
+                else:
+                    pend = pidx[j+1]
+                    
+                pind = pix[pstart]
+                deltan = pend - pstart
+                tprint('    Number of particles in bin {0},{1}: {2}'.format(rind, pind, deltan))
+                nwrit += deltan
+                if rind not in buffs:
+                    buffs[rind] = {}
+                if pind not in buffs[rind]:
+                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(rind, pind, block),
+                                                header, nmax=buffersize)
+
+                buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
+                                      vel[start+pstart:start+pend,:].flatten(),
+                                      ids[start+pstart:start+pend])
+            
         assert nwrit == len(bins)
         tprint('    put data in buff')
         
     tprint('    writing outputs')
     nwrit = 0
     for rind in buffs.keys():
-        tprint('    bin %03d of %03d' % (rind,len(rbins)))
-        buffs[rind].write()
-        nwrit += buffs[rind].nwritten
-        tprint('    Buffer for bin %03d of %03d dumped %03d times' % (rind,len(rbins),buffs[rind].dumpcount))
-        del buffs[rind]
+        for pind in buffs[rind].keys():
+            buffs[rind][pind].write()
+            nwrit += buffs[rind][pind].nwritten
+            tprint('    Buffer for bin {0}, {1} dumped {2} times'.format(rind,pind,buffs[rind][pind].dumpcount))
+            del buffs[rind][pind]
+
     tprint('    Total number of particles written, read: {0}, {1}'.format(nwrit, len(bins)))
 
-    return rbins
 
 def combine_radial_buffer_pair(file1, file2):
 
@@ -353,18 +404,18 @@ def combine_radial_buffer_pair(file1, file2):
     ws = file1.split('.')[:-1]
     ws.append('join'+b1+b2)
     wf = '.'.join(ws)
-    hdrfmt = 'fQIdddd'
+    hdrfmt = 'QIIfdddd'
 
     with open(file1, 'rb') as rp1:
         with open(file2, 'rb') as rp2:
             h1, idx1 = read_radial_bin(rp1)
             h2, idx2 = read_radial_bin(rp2)
             h = h1
-            h[1] += h2[1]
+            h[0] += h2[0]
             idx = idx1+idx2
             nadd = 0
 
-            assert(np.sum(idx) == h[1])
+            assert(np.sum(idx) == h[0])
             with open(wf, 'wb') as wp:
                 wp.write(struct.pack(hdrfmt, *h))
                 wp.write(idx.tobytes())
@@ -382,7 +433,7 @@ def combine_radial_buffer_pair(file1, file2):
                     buff.add(d)
                     nadd += len(d)//3
 
-            assert(nadd == h[1])
+            assert(nadd == h[0])
             buff.write()
 
             #write velocities
@@ -396,7 +447,7 @@ def combine_radial_buffer_pair(file1, file2):
 
             buff.write()
 
-            assert(buff.nwritten//6 == h[1])
+            assert(buff.nwritten//6 == h[0])
             #write ids
             buff = Buffer(wf, dtype='u8')
             fmt = np.dtype(np.uint64)
@@ -433,7 +484,7 @@ def process_radial_cell(basepath, rbin, filenside=16):
 def read_radial_bin(filename, filenside=16, read_pos=False, \
                         read_vel=False, read_ids=False):
 
-    hdrfmt = 'fQIdddd'
+    hdrfmt = 'QIIfdddd'
     idxfmt = np.dtype('i8')
     to_read = [read_pos, read_vel, read_ids]
     fmt = [np.dtype(np.float32), np.dtype(np.float32), np.dtype(np.uint64)]
@@ -451,7 +502,7 @@ def read_radial_bin(filename, filenside=16, read_pos=False, \
     h = list(struct.unpack(hdrfmt, \
             fp.read(struct.calcsize(hdrfmt))))
 
-    npart = h[1]
+    npart = h[0]
     data.append(h)
     #read the peano index
     idx = np.fromstring(fp.read(idxfmt.itemsize*filenpix), idxfmt)
@@ -499,8 +550,8 @@ def map_LC_to_radial_bins(namefile, outpath, cosmology, rmin, rmax):
     simlabel = blockpaths[0].split('/')[-1].split('_')[:3]
     outbase = '{0}/{1}'.format(outpath, simlabel)
 
-    rbins = write_to_redshift_cells_buff(blockpaths, outbase, cosmology, 
-                                         rmin=rmin, rmax=rmax)
+    write_to_redshift_cells_buff(blockpaths, outbase, cosmology, 
+                                 rmin=rmin, rmax=rmax)
 
 def process_all_radial_bins(outbase, rmin, rmax, rstep=25.0):
     
@@ -514,9 +565,3 @@ def process_all_radial_bins(outbase, rmin, rmax, rstep=25.0):
     for r in chuncks[rank]:
         process_radial_cell(basepath, r)
 
-
-if __name__ == '__main__':
-    
-    filelist = sys.argv[1]
-    rmin = sys.argv[2]
-    rmax 
