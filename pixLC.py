@@ -253,29 +253,9 @@ class RBuffer(object):
             self.ibuff[self.ncurr:self.ncurr+nleft] = ids[loc:loc+nleft]
             self.ncurr += nleft
 
-
-def write_to_redshift_cells_buff(filepaths, outbase, cosmology, indexnside=16, lfilenside=1, 
-                                 hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
-                                 rmax=4000, rstep=25, boxsize=1050, pmass=3.16):
-    """
-    Read in gadget particle block, and write to the correct healpix/redshift
-    cell files. 
-    
-    parameters:
-    lfilenside: int
-        The healpix nside to start with
-    hfilenside: int
-        The highest nside that we want to use
-    rr0: float
-        The radius at which we want to perform our first refinement. Further refinements
-        will be performed at r_n = rr0*sqrt(2)^n.
-    """
-    comm = MPI.COMM_WORLD
-    size = comm.Get_size()
-    rank = comm.Get_rank()
+def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 
     rbins = np.linspace(rmin,rmax,(rmax-rmin)//rstep+1)
-    rbins2 = rbins*rbins
 
     #determine refinement radii
     rr = [rr0]
@@ -294,11 +274,36 @@ def write_to_redshift_cells_buff(filepaths, outbase, cosmology, indexnside=16, l
         if (hfilenside!=None) & (rnside[i+1]>hfilenside):
             rnside[i+1] = hfilenside
 
+    return rbins, rr, rnside, nr
+
+
+
+def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
+                        hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
+                        rmax=4000, rstep=25, boxsize=1050, pmass=3.16):
+    """
+    Read in gadget particle block, and write to the correct healpix/redshift
+    cell files. 
+    
+    parameters:
+    lfilenside: int
+        The healpix nside to start with
+    hfilenside: int
+        The highest nside that we want to use
+    rr0: float
+        The radius at which we want to perform our first refinement. Further refinements
+        will be performed at r_n = rr0*sqrt(2)^n.
+    """
+    rbins, rr, rnside, nr = create_refinement_plan(rmin, rmax, rstep, rr0,
+                                                   lfilenside, hfilenside=hfilenside)
+    rbins2 = rbins*rbins
+
+
     print('Max number of refinements: {0}'.format(nr))
     print('Maximum nside: {0}'.format(rnside[-1]))
     print('Radii to refine at: {0}'.format(rr))
     
-    header = [0, indexnside, rnside[0], boxsize, pmass, cosmology[0], cosmology[1], cosmology[2]]
+    header = [0, indexnside, rnside[0], boxsize, pmass, 0.0, 0.0, 0.0]
         
     nfiles = len(filepaths)
     buffs = {}
@@ -310,6 +315,9 @@ def write_to_redshift_cells_buff(filepaths, outbase, cosmology, indexnside=16, l
                                                 read_vel=True,
                                                 read_id=True,
                                                 lgadget=True)
+        header[-1] = hdr.HubbleParam
+        header[-2] = hdr.OmegaLambda
+        header[-3] = hdr.Omega0
         tprint('    read data')
         
         r2 = pos[:,0]**2 + pos[:,1]**2 + pos[:,2]**2
@@ -397,7 +405,7 @@ def write_to_redshift_cells_buff(filepaths, outbase, cosmology, indexnside=16, l
     tprint('    Total number of particles written, read: {0}, {1}'.format(nwrit, len(bins)))
 
 
-def combine_radial_buffer_pair(file1, file2):
+def combine_cell_pair(file1, file2):
 
     b1 = file1.split('.')[-1]
     b2 = file2.split('.')[-1]
@@ -463,13 +471,13 @@ def combine_radial_buffer_pair(file1, file2):
 
     return wf
 
-def process_radial_cell(basepath, rbin, filenside=16):
+def process_cell(basepath, rbin, pix):
 
-    files = glob('{0}_{1}*'.format(basepath, rbin))
+    files = glob('{0}_{1}_{2}*'.format(basepath, rbin, pix))
     processed = []
 
     while len(files)>1:
-        files.append(combine_radial_buffer_pair(files[0], files[1]))
+        files.append(combine_cell_pair(files[0], files[1]))
         processed.append(files[0])
         processed.append(files[1])
         files.remove(files[0])
@@ -481,8 +489,7 @@ def process_radial_cell(basepath, rbin, filenside=16):
         os.remove(f)
 
 
-def read_radial_bin(filename, filenside=16, read_pos=False, \
-                        read_vel=False, read_ids=False):
+def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
 
     hdrfmt = 'QIIfdddd'
     idxfmt = np.dtype('i8')
@@ -490,7 +497,7 @@ def read_radial_bin(filename, filenside=16, read_pos=False, \
     fmt = [np.dtype(np.float32), np.dtype(np.float32), np.dtype(np.uint64)]
     item_per_row = [3,3,1]
     data = []
-    filenpix  = 12*filenside**2
+
     opened = False
     if not hasattr(filename, 'read'):
         opened = True
@@ -503,15 +510,16 @@ def read_radial_bin(filename, filenside=16, read_pos=False, \
             fp.read(struct.calcsize(hdrfmt))))
 
     npart = h[0]
+    indexnside = h[1]
+    indexnpix  = 12*indexnside**2
     data.append(h)
     #read the peano index
-    idx = np.fromstring(fp.read(idxfmt.itemsize*filenpix), idxfmt)
+    idx = np.fromstring(fp.read(idxfmt.itemsize*indexnpix), idxfmt)
     data.append(idx)
 
     for i, r in enumerate(to_read):
         if r:
             data.append(np.fromstring(fp.read(int(npart*item_per_row[i]*fmt[i].itemsize)), fmt[i]))
-
     if opened:
         fp.close()
 
@@ -542,26 +550,57 @@ def nest2peano(pix, order):
 
   return result + ((face2peanoface[face])<<(2*order));
 
-def map_LC_to_radial_bins(namefile, outpath, cosmology, rmin, rmax):
+def map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside, rr0,
+                    hfilenside=None, boxsize=1050.0, pmass=3.16):
 
-    with open(namefile, 'r') as fp:
-        blockpaths = np.loadtxt(namefile)
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+
+    blockpaths = np.genfromtxt(namefile, dtype=None)
 
     simlabel = blockpaths[0].split('/')[-1].split('_')[:3]
     outbase = '{0}/{1}'.format(outpath, simlabel)
 
-    write_to_redshift_cells_buff(blockpaths, outbase, cosmology, 
-                                 rmin=rmin, rmax=rmax)
+    chunks = [blockpaths[i::size] for i in range(size)]
 
-def process_all_radial_bins(outbase, rmin, rmax, rstep=25.0):
+    write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
+                        hfilenside=hfilenside, rr0=rr0, boxsize=boxsize, pmass=pmass,
+                        rmin=rmin, rmax=rmax)
+
+def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
+                      hfilenside=None):
     
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
 
+    rads, rr, rnside, nr = create_refinement_plan(rmin, rmax, rstep, rr0,
+                                                   lfilenside, hfilenside=hfilenside)
     rbins = np.arange((rmax-rmin)//rstep)
-    chunks = [rbins[i::size] for i in range(size)]
-    
-    for r in chuncks[rank]:
-        process_radial_cell(basepath, r)
+    rnpix = 12*rnside**2
+    idx = np.cumsum(rnpix)
+    idx = np.hstack([np.zeros(1),idx+1])
+    cells = np.ndarray((idx[-1],2))
 
+    for i, r in rbins:
+        cells[idx[i]:idx[i+1],0] = r
+        cells[idx[i]:idx[i+1],1] = np.arange(rnpix[i])
+    
+    chunks = [cells[i::size,:] for i in range(size)]
+    
+    for c in chunks[rank]:
+        process_cell(basepath, *c)
+
+if __name__=='__main__':
+
+    namefile = sys.argv[1]
+    outpath = sys.argv[2]
+    rmin = float(sys.argv[3])
+    rmax = float(sys.argv[4])
+    lfilenside = int(sys.argv[5])
+    rr0 = float(sys.argv[6])
+    
+    map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside,
+                    rr0, hfilenside=None, boxsize=1050.0, pmass=3.16)
+    
