@@ -1,0 +1,10 @@
+#!/bin/bash
+#BSUB -q kipac-ibq
+#BSUB -W 24:00
+#BSUB -J pixLC
+#BSUB -oo logs/pixLC.out
+#BSUB -n 64
+
+/nfs/slac/g/ki/ki21/cosmo/jderose/anaconda/bin/mpirun python pixLC.py C1_1050.txt /lustre/ki/pfs/jderose/simulations/Chinchilla-1/Lb1050/lightcone000/ 0.0 4000.0 1 600.0
+
+/nfs/slac/g/ki/ki21/cosmo/jderose/anaconda/bin/mpirun python process_pixelated_lightcone.py /lustre/ki/pfs/jderose/simulations/Chinchilla-1/Lb1050/lightcone000/snapshot_Lightcone_000 0 4000 1 600.0

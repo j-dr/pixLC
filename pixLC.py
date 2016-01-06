@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-from collections import namedtuple
+from collections import namedtuple, deque
 from mpi4py import MPI
 from glob import glob
 import numpy as np
@@ -125,7 +125,7 @@ def readGadgetSnapshot(filename, read_pos=False, read_vel=False, read_id=False,\
 
         
 class Buffer(object):
-    def __init__(self,fname,dtype,nmax=8000000):
+    def __init__(self,fname,dtype,nmax=1000000):
         self.buff = np.zeros(nmax,dtype=dtype)
         self.nmax = nmax
         self.ncurr = 0
@@ -304,6 +304,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     print('Radii to refine at: {0}'.format(rr))
     
     header = [0, indexnside, rnside[0], boxsize, pmass, 0.0, 0.0, 0.0]
+    ntot = 0
         
     nfiles = len(filepaths)
     buffs = {}
@@ -318,7 +319,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         header[-1] = hdr.HubbleParam
         header[-2] = hdr.OmegaLambda
         header[-3] = hdr.Omega0
-        tprint('    read data')
+        #tprint('    read data')
         
         r2 = pos[:,0]**2 + pos[:,1]**2 + pos[:,2]**2
         pix = hp.vec2pix(rnside[-1], pos[:,0], pos[:,1], pos[:,2], nest=True)
@@ -329,7 +330,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         bins['ridx'] = np.digitize(r2, rbins2)
         bins['pidx'] = np.digitize(pix, np.arange(12*rnside[-1]**2))
 
-        tprint('    made indexes')
+        #tprint('    made indexes')
         
         #sort indices
         idx = bins.argsort(order=['ridx','pidx'])
@@ -339,7 +340,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         bins = bins[idx]
         del idx, pix
         
-        tprint('    sorted data')
+        #tprint('    sorted data')
         
         #create index into radial cells
         rinc = bins['ridx'][1:]-bins['ridx'][:-1]
@@ -378,7 +379,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                     
                 pind = pix[pstart]
                 deltan = pend - pstart
-                tprint('    Number of particles in bin {0},{1}: {2}'.format(rind, pind, deltan))
+                #tprint('    Number of particles in bin {0},{1}: {2}'.format(rind, pind, deltan))
                 nwrit += deltan
                 if rind not in buffs:
                     buffs[rind] = {}
@@ -391,27 +392,34 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                                       ids[start+pstart:start+pend])
             
         assert nwrit == len(bins)
-        tprint('    put data in buff')
+        #tprint('    put data in buff')
+        ntot += len(bins)
         
-    tprint('    writing outputs')
+    #tprint('    writing outputs')
     nwrit = 0
     for rind in buffs.keys():
         for pind in buffs[rind].keys():
             buffs[rind][pind].write()
             nwrit += buffs[rind][pind].nwritten
-            tprint('    Buffer for bin {0}, {1} dumped {2} times'.format(rind,pind,buffs[rind][pind].dumpcount))
+            #tprint('    Buffer for bin {0}, {1} dumped {2} times'.format(rind,pind,buffs[rind][pind].dumpcount))
             del buffs[rind][pind]
 
-    tprint('    Total number of particles written, read: {0}, {1}'.format(nwrit, len(bins)))
+    #tprint('    Total number of particles written, read: {0}, {1}'.format(nwrit, ntot))
 
 
 def combine_cell_pair(file1, file2):
 
-    b1 = file1.split('.')[-1]
-    b2 = file2.split('.')[-1]
-    ws = file1.split('.')[:-1]
-    ws.append('join'+b1+b2)
-    wf = '.'.join(ws)
+    if 'mg' in file1:
+        fs = file1.split('mg')
+        fs[-1] = str(int(fs[-1])+1)
+        wf = 'mg'.join(fs)
+    elif 'mg' in file2:
+        fs = file2.split('mg')
+        fs[-1] = str(int(fs[-1])+1)
+        wf = 'mg'.join(fs)
+    else:
+        wf = file1+'mg1'
+
     hdrfmt = 'QIIfdddd'
 
     with open(file1, 'rb') as rp1:
@@ -471,22 +479,30 @@ def combine_cell_pair(file1, file2):
 
     return wf
 
-def process_cell(basepath, rbin, pix):
+def process_cell(basepath, rbin, pix, rank=None):
 
-    files = glob('{0}_{1}_{2}*'.format(basepath, rbin, pix))
+
+    files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
+    if len(files)==0:
+        return
+
+    tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
+    
     processed = []
 
     while len(files)>1:
-        files.append(combine_cell_pair(files[0], files[1]))
-        processed.append(files[0])
-        processed.append(files[1])
-        files.remove(files[0])
-        files.remove(files[0])
+        f1 = files.popleft()
+        f2 = files.popleft()
+        files.append(combine_cell_pair(f1,f2))
+        processed.append(f1)
+        processed.append(f2)
 
-    os.rename(files[0], '{0}_{1}'.format(basepath, rbin))
+    os.rename(files[0], '{0}_{1}_{2}'.format(basepath, rbin, pix))
 
     for f in processed:
         os.remove(f)
+
+    tprint("    {2} Done processing cell {0} {1}".format(rbin, pix, rank))
 
 
 def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
@@ -559,7 +575,7 @@ def map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside, rr0,
 
     blockpaths = np.genfromtxt(namefile, dtype=None)
 
-    simlabel = blockpaths[0].split('/')[-1].split('_')[:3]
+    simlabel = '_'.join(blockpaths[0].split('/')[-1].split('.')[-2].split('_')[:3])
     outbase = '{0}/{1}'.format(outpath, simlabel)
 
     chunks = [blockpaths[i::size] for i in range(size)]
@@ -577,20 +593,24 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
 
     rads, rr, rnside, nr = create_refinement_plan(rmin, rmax, rstep, rr0,
                                                    lfilenside, hfilenside=hfilenside)
-    rbins = np.arange((rmax-rmin)//rstep)
+    rbins = np.arange((rmax-rmin)//rstep, dtype=np.int64)
     rnpix = 12*rnside**2
     idx = np.cumsum(rnpix)
-    idx = np.hstack([np.zeros(1),idx+1])
-    cells = np.ndarray((idx[-1],2))
+    idx = np.hstack([np.zeros(1),idx])
+    cells = np.ndarray((idx[-1],2), dtype=np.int64)
 
-    for i, r in rbins:
+    for i, r in enumerate(rbins):
         cells[idx[i]:idx[i+1],0] = r
-        cells[idx[i]:idx[i+1],1] = np.arange(rnpix[i])
+        cells[idx[i]:idx[i+1],1] = np.arange(rnpix[i], dtype=np.int64)
     
     chunks = [cells[i::size,:] for i in range(size)]
     
-    for c in chunks[rank]:
-        process_cell(basepath, *c)
+    for i, c in enumerate(chunks[rank]):
+        if i%50==0:
+            tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
+        #tprint('    {0}: Before {1}'.format(rank, c))
+        process_cell(outbase, *c, rank=rank)
+        #tprint('    {0}: After {1}'.format(rank, c))
 
 if __name__=='__main__':
 
@@ -602,5 +622,5 @@ if __name__=='__main__':
     rr0 = float(sys.argv[6])
     
     map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside,
-                    rr0, hfilenside=None, boxsize=1050.0, pmass=3.16)
+                    rr0, hfilenside=4, boxsize=1050.0, pmass=3.16)
     
