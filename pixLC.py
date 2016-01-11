@@ -3,6 +3,7 @@ from __future__ import print_function, division
 from collections import namedtuple, deque
 from mpi4py import MPI
 from glob import glob
+from copy import copy
 import numpy as np
 import healpy as hp
 import struct
@@ -125,7 +126,7 @@ def readGadgetSnapshot(filename, read_pos=False, read_vel=False, read_id=False,\
 
         
 class Buffer(object):
-    def __init__(self,fname,dtype,nmax=1000000):
+    def __init__(self,fname,dtype,nmax=10000000):
         self.buff = np.zeros(nmax,dtype=dtype)
         self.nmax = nmax
         self.ncurr = 0
@@ -407,80 +408,79 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     #tprint('    Total number of particles written, read: {0}, {1}'.format(nwrit, ntot))
 
 
-def combine_cell_pair(file1, file2):
+def combine_cell_list(flist):
 
-    if 'mg' in file1:
-        fs = file1.split('mg')
-        fs[-1] = str(int(fs[-1])+1)
-        wf = 'mg'.join(fs)
-    elif 'mg' in file2:
-        fs = file2.split('mg')
-        fs[-1] = str(int(fs[-1])+1)
-        wf = 'mg'.join(fs)
-    else:
-        wf = file1+'mg1'
+    for i, f in enumerate(flist):
+        if 'mg' in f:
+            fs = f.split('mg')
+            fs[-1] = str(int(fs[-1])+1)
+            wf = 'mg'.join(fs)
+            break
+        if i==(len(flist)-1):
+            wf = f+'mg1'
 
     hdrfmt = 'QIIfdddd'
+    rps = [open(f, 'rb') for f in flist]
+    idxs = []
 
-    with open(file1, 'rb') as rp1:
-        with open(file2, 'rb') as rp2:
-            h1, idx1 = read_radial_bin(rp1)
-            h2, idx2 = read_radial_bin(rp2)
-            h = h1
-            h[0] += h2[0]
-            idx = idx1+idx2
-            nadd = 0
+    for i, rp in enumerate(rps):
+        hi, idxi = read_radial_bin(rp)
+        if i==0:
+            h = hi
+            idx = copy(idxi)
+        else:
+            h[0] += hi[0]
+            idx += idxi
+        
+        idxs.append(idxi)
+        nadd = 0
 
-            assert(np.sum(idx) == h[0])
-            with open(wf, 'wb') as wp:
-                wp.write(struct.pack(hdrfmt, *h))
-                wp.write(idx.tobytes())
+    assert(np.sum(idx) == h[0])
+    with open(wf, 'wb') as wp:
+        wp.write(struct.pack(hdrfmt, *h))
+        wp.write(idx.tobytes())
 
-            #write particles
-            buff = Buffer(wf, dtype='f4')
-            fmt = np.dtype(np.float32)
-            for i in range(len(idx1)):
-                if idx1[i]:
-                    d = np.fromstring(rp1.read(int(idx1[i]*3*fmt.itemsize)),fmt)
-                    buff.add(d)
-                    nadd += len(d)//3
-                if idx2[i]:
-                    d = np.fromstring(rp2.read(int(idx2[i]*3*fmt.itemsize)),fmt)
-                    buff.add(d)
-                    nadd += len(d)//3
+    #write particles
+    buff = Buffer(wf, dtype='f4')
+    fmt = np.dtype(np.float32)
+    for i in range(len(idx)):
+        for j, idxi in enumerate(idxs):
+            if idxi[i]:
+                d = np.fromstring(rps[j].read(int(idxi[i]*3*fmt.itemsize)),fmt)
+                buff.add(d)
+                nadd += len(d)//3
 
-            assert(nadd == h[0])
-            buff.write()
+    buff.write()
 
-            #write velocities
-            for i in range(len(idx1)):
-                if idx1[i]:
-                    d = np.fromstring(rp1.read(int(idx1[i]*3*fmt.itemsize)),fmt)
-                    buff.add(d)
-                if idx2[i]:
-                    d = np.fromstring(rp2.read(int(idx2[i]*3*fmt.itemsize)),fmt)
-                    buff.add(d)
+    for i in range(len(idx)):
+        for j, idxi in enumerate(idxs):
+            if idxi[i]:
+                d = np.fromstring(rps[j].read(int(idxi[i]*3*fmt.itemsize)),fmt)
+                buff.add(d)
+                nadd += len(d)//3
+                
+    buff.write()
+    print('Nwritten: {0}'.format(buff.nwritten//6))
+    print('Nparts: {0}'.format(h[0]))
+    assert(buff.nwritten//6 == h[0])
 
-            buff.write()
-
-            assert(buff.nwritten//6 == h[0])
-            #write ids
-            buff = Buffer(wf, dtype='u8')
-            fmt = np.dtype(np.uint64)
-            for i in range(len(idx1)):
-                if idx1[i]:
-                    d = np.fromstring(rp1.read(int(idx1[i]*fmt.itemsize)),fmt)
-                    buff.add(d)
-                if idx2[i]:
-                    d = np.fromstring(rp2.read(int(idx2[i]*fmt.itemsize)),fmt)
-                    buff.add(d)
-            
-            buff.write()
+    #write ids
+    buff = Buffer(wf, dtype='u8')
+    fmt = np.dtype(np.uint64)
+    for i in range(len(idx)):
+        for j, idxi in enumerate(idxs):
+            if idxi[i]:
+                d = np.fromstring(rps[j].read(int(idxi[i]*3*fmt.itemsize)),fmt)
+                buff.add(d)
+        
+    buff.write()
+    
+    for rp in rps:
+        rp.close()
 
     return wf
 
-def process_cell(basepath, rbin, pix, rank=None):
-
+def process_cell(basepath, rbin, pix, rank=None, ncomb=10):
 
     files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
     if len(files)==0:
@@ -491,11 +491,10 @@ def process_cell(basepath, rbin, pix, rank=None):
     processed = []
 
     while len(files)>1:
-        f1 = files.popleft()
-        f2 = files.popleft()
-        files.append(combine_cell_pair(f1,f2))
-        processed.append(f1)
-        processed.append(f2)
+        npop = min(ncomb, len(files))
+        flist = [files.popleft() for i in range(npop)]
+        files.append(combine_cell_list(flist))
+        processed.extend(flist)
 
     os.rename(files[0], '{0}_{1}_{2}'.format(basepath, rbin, pix))
 
@@ -578,7 +577,8 @@ def map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside, rr0,
     simlabel = '_'.join(blockpaths[0].split('/')[-1].split('.')[-2].split('_')[:3])
     outbase = '{0}/{1}'.format(outpath, simlabel)
 
-    chunks = [blockpaths[i::size] for i in range(size)]
+    step = (len(blockpaths) + size -1 ) // size
+    chunks = [blockpaths[i*step:(i+1)*step] for i in range(size)]
 
     write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
                         hfilenside=hfilenside, rr0=rr0, boxsize=boxsize, pmass=pmass,
