@@ -186,7 +186,7 @@ class RBuffer(object):
         self.filenside = header[1]
         self.fileorder = int(np.log2(self.filenside))
         self.header = header
-        self.hdrfmt = 'QIIfdddd'
+        self.hdrfmt = 'QIIfdQddd'
 
     def sort_by_peano(self):
         pix = hp.vec2pix(self.filenside, self.pbuff[:3*self.ncurr:3], \
@@ -304,7 +304,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     print('Maximum nside: {0}'.format(rnside[-1]))
     print('Radii to refine at: {0}'.format(rr))
     
-    header = [0, indexnside, rnside[0], boxsize, pmass, 0.0, 0.0, 0.0]
+    header = [0, indexnside, rnside[0], boxsize, pmass, 0, 0.0, 0.0, 0.0]
     ntot = 0
         
     nfiles = len(filepaths)
@@ -320,19 +320,29 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         header[-1] = hdr.HubbleParam
         header[-2] = hdr.OmegaLambda
         header[-3] = hdr.Omega0
-        #tprint('    read data')
+        header[-4] = hdr.npartTotal[1]
         
         r2 = pos[:,0]**2 + pos[:,1]**2 + pos[:,2]**2
+
+        #discard partices that don't fall into the desired radial range
+        ridx = (rmin**2<=r2) & (r2<rmax**2)
+        r2 = r2[ridx]
+        if len(r2)==0:
+            continue
+
+        pos = pos[ridx,:]
+        vel = vel[ridx,:]
+        ids = ids[ridx]
+        
+        #determine the healpix cell that each particle falls into
         pix = hp.vec2pix(rnside[-1], pos[:,0], pos[:,1], pos[:,2], nest=True)
         idxdtype = np.dtype([('pidx', np.int32), ('ridx', np.int32)])
         bins = np.ndarray(len(pos), dtype=idxdtype)
 
         #Index by radial bin and highest order hpix cell
-        bins['ridx'] = np.digitize(r2, rbins2)
+        bins['ridx'] = np.digitize(r2, rbins2)-1
         bins['pidx'] = np.digitize(pix, np.arange(12*rnside[-1]**2))
 
-        #tprint('    made indexes')
-        
         #sort indices
         idx = bins.argsort(order=['ridx','pidx'])
         pos = pos[idx,:]
@@ -341,9 +351,8 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         bins = bins[idx]
         del idx, pix
         
-        #tprint('    sorted data')
-        
-        #create index into radial cells
+        #create index into radial cells by
+        #finding where radial bin increments
         rinc = bins['ridx'][1:]-bins['ridx'][:-1]
         idx, = np.where(rinc!=0)
         idx = list(idx+1)
@@ -406,6 +415,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
             del buffs[rind][pind]
 
     #tprint('    Total number of particles written, read: {0}, {1}'.format(nwrit, ntot))
+    return header
 
 
 def combine_cell_list(flist):
@@ -419,7 +429,7 @@ def combine_cell_list(flist):
         if i==(len(flist)-1):
             wf = f+'mg1'
 
-    hdrfmt = 'QIIfdddd'
+    hdrfmt = 'QIIfdQddd'
     rps = [open(f, 'rb') for f in flist]
     idxs = []
 
@@ -480,10 +490,18 @@ def combine_cell_list(flist):
 
     return wf
 
-def process_cell(basepath, rbin, pix, rank=None, ncomb=10):
+def write_empty_header(basepath, rbin, pix, header):
+    hdrfmt = 'QIIfdQddd'
+    header[0] = 0
+    with open('{0}_{1}_{2}'.format(basepath, rbin, pix), 'w') as fp:
+        fp.write(struct.pack(hdrfmt, *header))
+    
+
+def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
 
     files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
     if len(files)==0:
+        write_empty_header(basepath, rbin, pix, header)
         return
 
     tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
@@ -506,7 +524,7 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10):
 
 def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
 
-    hdrfmt = 'QIIfdddd'
+    hdrfmt = 'QIIfdQddd'
     idxfmt = np.dtype('i8')
     to_read = [read_pos, read_vel, read_ids]
     fmt = [np.dtype(np.float32), np.dtype(np.float32), np.dtype(np.uint64)]
@@ -565,7 +583,7 @@ def nest2peano(pix, order):
 
   return result + ((face2peanoface[face])<<(2*order));
 
-def map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside, rr0,
+def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
                     hfilenside=None, boxsize=1050.0, pmass=3.16):
 
     comm = MPI.COMM_WORLD
@@ -573,19 +591,18 @@ def map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside, rr0,
     rank = comm.Get_rank()
 
     blockpaths = np.genfromtxt(namefile, dtype=None)
-
-    simlabel = '_'.join(blockpaths[0].split('/')[-1].split('.')[-2].split('_')[:3])
     outbase = '{0}/{1}'.format(outpath, simlabel)
 
     step = (len(blockpaths) + size -1 ) // size
     chunks = [blockpaths[i*step:(i+1)*step] for i in range(size)]
 
-    write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
-                        hfilenside=hfilenside, rr0=rr0, boxsize=boxsize, pmass=pmass,
-                        rmin=rmin, rmax=rmax)
+    header = write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
+                                 hfilenside=hfilenside, rr0=rr0, boxsize=boxsize, pmass=pmass,
+                                 rmin=rmin, rmax=rmax)
+    return header
 
 def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
-                      hfilenside=None):
+                      hfilenside=None, header=None):
     
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
@@ -609,10 +626,13 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
         if i%50==0:
             tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
         #tprint('    {0}: Before {1}'.format(rank, c))
-        process_cell(outbase, *c, rank=rank)
+        header[2] = rnside[c[0]]
+        process_cell(outbase, *c, rank=rank, header=header)
         #tprint('    {0}: After {1}'.format(rank, c))
 
 if __name__=='__main__':
+
+    comm = MPI.COMM_WORLD
 
     namefile = sys.argv[1]
     outpath = sys.argv[2]
@@ -620,7 +640,13 @@ if __name__=='__main__':
     rmax = float(sys.argv[4])
     lfilenside = int(sys.argv[5])
     rr0 = float(sys.argv[6])
+    prefix = sys.argv[7]
     
-    map_LC_to_cells(namefile, outpath, rmin, rmax, lfilenside,
-                    rr0, hfilenside=4, boxsize=1050.0, pmass=3.16)
+    outbase = '{0}/{1}'.format(outpath,prefix)
     
+    header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
+                             rr0, hfilenside=4, boxsize=1050.0, pmass=3.16)
+
+    comm.Barrier()
+
+    process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside, hfilenside=4, header=header)
