@@ -490,18 +490,12 @@ def combine_cell_list(flist):
 
     return wf
 
-def write_empty_header(basepath, rbin, pix, header):
-    hdrfmt = 'QIIfdQddd'
-    header[0] = 0
-    with open('{0}_{1}_{2}'.format(basepath, rbin, pix), 'w') as fp:
-        fp.write(struct.pack(hdrfmt, *header))
-    
-
-def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
+def process_cell(basepath, rbin, pix, rank=None, ncomb=10):
 
     files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
     if len(files)==0:
-        write_empty_header(basepath, rbin, pix, header)
+        if (rbin==0) & (pix==0):
+            write_empty_header()
         return
 
     tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
@@ -625,10 +619,9 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     for i, c in enumerate(chunks[rank]):
         if i%50==0:
             tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
-        #tprint('    {0}: Before {1}'.format(rank, c))
-        header[2] = rnside[c[0]]
-        process_cell(outbase, *c, rank=rank, header=header)
-        #tprint('    {0}: After {1}'.format(rank, c))
+
+        process_cell(outbase, *c, rank=rank)
+
 
 if __name__=='__main__':
 
