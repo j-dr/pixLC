@@ -363,6 +363,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         #Write to disk
         nwrit = 0
         for i, start in enumerate(idx):
+            header = copy(header)
             if i==(len(idx)-1):
                 end = len(bins)
             else:
@@ -441,6 +442,8 @@ def combine_cell_list(flist):
         else:
             h[0] += hi[0]
             idx += idxi
+
+        assert( hi[2:] == h[2:] )
         
         idxs.append(idxi)
         nadd = 0
@@ -490,12 +493,20 @@ def combine_cell_list(flist):
 
     return wf
 
-def process_cell(basepath, rbin, pix, rank=None, ncomb=10):
+
+def write_empty_header(basepath, rbin, pix, header):
+    hdrfmt = 'QIIfdQddd'
+    header[0] = 0
+    with open('{0}_{1}_{2}'.format(basepath, rbin, pix), 'w') as fp:
+        fp.write(struct.pack(hdrfmt, *header))
+
+
+def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
 
     files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
     if len(files)==0:
         if (rbin==0) & (pix==0):
-            write_empty_header()
+            write_empty_header(basepath, rbin, pix, header)
         return
 
     tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
@@ -545,8 +556,9 @@ def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
     data.append(idx)
 
     for i, r in enumerate(to_read):
+        d = np.fromstring(fp.read(int(npart*item_per_row[i]*fmt[i].itemsize)), fmt[i])
         if r:
-            data.append(np.fromstring(fp.read(int(npart*item_per_row[i]*fmt[i].itemsize)), fmt[i]))
+            data.append(d)
     if opened:
         fp.close()
 
@@ -619,8 +631,9 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     for i, c in enumerate(chunks[rank]):
         if i%50==0:
             tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
-
-        process_cell(outbase, *c, rank=rank)
+        
+        header[2] = rnside[c[0]]
+        process_cell(outbase, *c, rank=rank, header=header)
 
 
 if __name__=='__main__':
