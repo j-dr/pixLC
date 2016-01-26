@@ -150,6 +150,7 @@ class Buffer(object):
         
     def write(self):
         #if buffer not empty, write 
+        print('ncurr: {0}'.format(self.ncurr))
         if self.ncurr > 0:
             with open(self.fname, 'ab') as fp:
                 fp.write(self.buff[0:self.ncurr].tobytes())
@@ -163,6 +164,7 @@ class Buffer(object):
         
         loc = 0
         nnew = len(d)
+
         #if more particles added than can be 
         #held in buffer, dump
         while nnew + self.ncurr > self.nmax:
@@ -178,13 +180,12 @@ class Buffer(object):
             nnew -= nadd
             
             self.write()
-            
+
         #if all particles not yet in buffer, put the rest in
         if loc < len(d):
             nleft = len(d) - loc
             self.buff[self.ncurr:self.ncurr+nleft] = d[loc:loc+nleft]
             self.ncurr += nleft
-
 
 class RBuffer(object):
     """
@@ -541,6 +542,7 @@ def combine_cell_list(flist):
                 
     buff.write()
     #make sure buffer wrote everything we put in it
+
     assert(buff.nwritten//6 == h[0])
 
     #create new buffer for ids
@@ -618,12 +620,15 @@ def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
     """
     Read in a radial/hpix cell
     
-    filename -- The name of the file to read
+    filename -- The name of the file to read, or a file object. If file
+                object, will not be closed upon function return. Instead
+                the pointer will be left at the location of the last 
+                data read.
     read_xxx -- Whether or not to read xxx
     """
     hdrfmt = 'QIIfdQddd'
     idxfmt = np.dtype('i8')
-    to_read = [read_pos, read_vel, read_ids]
+    to_read = np.array([read_pos, read_vel, read_ids])
     fmt = [np.dtype(np.float32), np.dtype(np.float32), np.dtype(np.uint64)]
     item_per_row = [3,3,1]
     data = []
@@ -647,12 +652,15 @@ def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
     idx = np.fromstring(fp.read(idxfmt.itemsize*indexnpix), idxfmt)
     data.append(idx)
 
-    for i, r in enumerate(to_read):
-        d = np.fromstring(fp.read(int(npart*item_per_row[i]*fmt[i].itemsize)), fmt[i])
-        if r:
-            data.append(d)
-    if opened:
-        fp.close()
+    if to_read.any():
+        for i, r in enumerate(to_read):
+            d = np.fromstring(fp.read(int(npart*item_per_row[i]*fmt[i].itemsize)), fmt[i])
+            if r:
+                data.append(d)
+            if not to_read[i+1:].any():break
+
+        if opened:
+            fp.close()
 
     return data
 
