@@ -211,8 +211,8 @@ class RBuffer(object):
         self.nwritten = 0
         self.fname = fname
         self.nmax = nmax
-        self.filenside = header[1]
-        self.fileorder = int(np.log2(self.filenside))
+        self.indexnside = header[1]
+        self.fileorder = int(np.log2(self.indexnside))
         self.header = header
         self.hdrfmt = 'QIIfdQddd' 
 
@@ -222,12 +222,12 @@ class RBuffer(object):
         they are in
         """
         #determine healpix cells
-        pix = hp.vec2pix(self.filenside, self.pbuff[:3*self.ncurr:3], \
+        pix = hp.vec2pix(self.indexnside, self.pbuff[:3*self.ncurr:3], \
                          self.pbuff[1:3*self.ncurr:3], self.pbuff[2:3*self.ncurr:3], nest=True)
         peano = nest2peano(pix, self.fileorder)
         #sort by peano index
         pidx = np.argsort(peano)
-        pix = pix[pidx]
+        peano = peano[pidx]
         for i in range(3):
             self.pbuff[i:3*self.ncurr:3] = self.pbuff[i:3*self.ncurr:3][pidx]
             self.vbuff[i:3*self.ncurr:3] = self.vbuff[i:3*self.ncurr:3][pidx]
@@ -235,14 +235,14 @@ class RBuffer(object):
         self.ibuff[:self.ncurr] = self.ibuff[pidx]
 
         #determine number of particles in each cell
-        pidx = pix[1:]-pix[:-1]
+        pidx = peano[1:]-peano[:-1]
         pidx = np.where(pidx!=0)[0]+1
         nidx = [0]
         nidx.extend(list(pidx))
         pidx = np.array(nidx, dtype='i8')
-        nparts = np.hstack([pidx[1:]-pidx[:-1], np.array([len(pix)-pidx[-1]])])
-        self.pidx[pix[pidx]] = nparts
-        self.header[0] = len(pix)
+        nparts = np.hstack([pidx[1:]-pidx[:-1], np.array([len(peano)-pidx[-1]])])
+        self.pidx[peano[pidx]] = nparts
+        self.header[0] = len(peano)
 
     def write(self):
         self.sort_by_peano()
@@ -329,7 +329,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 
 
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
-                        hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
+                        hfilenside=None, rr0=300.0, buffersize=800000, rmin=0, 
                         rmax=4000, rstep=25, boxsize=1050, pmass=3.16):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
