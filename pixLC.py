@@ -329,7 +329,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 
 
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
-                        hfilenside=None, rr0=300.0, buffersize=800000, rmin=0, 
+                        hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
                         rmax=4000, rstep=25, boxsize=1050, pmass=3.16):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
@@ -346,8 +346,10 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     """
     #determine the radii to refine the nside value of the healpix cells that
     #the files are broken into
+    assert((rmin%rstep==0) and (rmax%rstep==0))
     rbins, rr, rnside, nr = create_refinement_plan(rmin, rmax, rstep, rr0,
                                                    lfilenside, hfilenside=hfilenside)
+    bin_offset = rmin//rstep
     rbins2 = rbins*rbins
 
     print('Max number of refinements: {0}'.format(nr))
@@ -454,7 +456,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 if rind not in buffs:
                     buffs[rind] = {}
                 if pind not in buffs[rind]:
-                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(rind, pind, block),
+                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(rind+bin_offset, pind, block),
                                                 header, nmax=buffersize)
                     
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
@@ -745,9 +747,13 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     size = comm.Get_size()
     rank = comm.Get_rank()
     
+    assert((rmin%rstep==0) and (rmax%rstep==0))
     #determine the nside to use for each radial bin
     rads, rr, rnside, nr = create_refinement_plan(rmin, rmax, rstep, rr0,
                                                    lfilenside, hfilenside=hfilenside)
+
+    #if rmin is not zero add offset so that bin index is assigned unique radial range
+    bin_offset = rmin//rstep
     rbins = np.arange((rmax-rmin)//rstep, dtype=np.int64)
 
     #determine number of pixels for each radial bin
@@ -757,7 +763,7 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     cells = np.ndarray((idx[-1],2), dtype=np.int64)
 
     for i, r in enumerate(rbins):
-        cells[idx[i]:idx[i+1],0] = r
+        cells[idx[i]:idx[i+1],0] = r+bin_offset
         cells[idx[i]:idx[i+1],1] = np.arange(rnpix[i], dtype=np.int64)
     
     chunks = [cells[i::size,:] for i in range(size)]
