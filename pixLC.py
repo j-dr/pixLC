@@ -456,7 +456,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 if rind not in buffs:
                     buffs[rind] = {}
                 if pind not in buffs[rind]:
-                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(rind+bin_offset, pind, block),
+                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, block),
                                                 header, nmax=buffersize)
                     
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
@@ -763,7 +763,7 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     cells = np.ndarray((idx[-1],2), dtype=np.int64)
 
     for i, r in enumerate(rbins):
-        cells[idx[i]:idx[i+1],0] = r+bin_offset
+        cells[idx[i]:idx[i+1],0] = int(r+bin_offset)
         cells[idx[i]:idx[i+1],1] = np.arange(rnpix[i], dtype=np.int64)
     
     chunks = [cells[i::size,:] for i in range(size)]
@@ -772,7 +772,7 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
         if i%50==0:
             tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
         
-        header[2] = rnside[c[0]]
+        header[2] = rnside[int(c[0]-bin_offset)]
         process_cell(outbase, *c, rank=rank, header=header)
 
 
@@ -787,12 +787,25 @@ if __name__=='__main__':
     lfilenside = int(sys.argv[5])
     rr0 = float(sys.argv[6])
     prefix = sys.argv[7]
-    
-    outbase = '{0}/{1}'.format(outpath,prefix)
-    
-    header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
-                             rr0, hfilenside=4)
+    if len(sys.argv)>8:
+        process_only = int(sys.argv[8])
+    else:
+        process_only = 0
 
-    comm.Barrier()
+    try:
+        os.makedirs(outpath)
+    except OSError as e:
+        pass
+
+    outbase = '{0}/{1}'.format(outpath,prefix)
+
+    if not process_only:
+        header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
+                                 rr0, hfilenside=4)
+        
+        comm.Barrier()
+    else:
+        pfiles = glob(outbase+'*')
+        header, idx = read_radial_bin(pfiles[0])
 
     process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside, hfilenside=4, header=header)
