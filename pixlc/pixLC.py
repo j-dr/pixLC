@@ -10,6 +10,7 @@ import struct
 import time
 import os
 import sys
+import yaml
 
 TZERO = None
 def tprint(info):
@@ -776,21 +777,29 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
         process_cell(outbase, *c, rank=rank, header=header)
 
 
+def readCFG(filename):
+    
+    with open(filename, 'r') as fp:
+        pars = yaml.load(fp)
+
+    return pars
+
 if __name__=='__main__':
 
     comm = MPI.COMM_WORLD
 
-    namefile = sys.argv[1]
-    outpath = sys.argv[2]
-    rmin = float(sys.argv[3])
-    rmax = float(sys.argv[4])
-    lfilenside = int(sys.argv[5])
-    rr0 = float(sys.argv[6])
-    prefix = sys.argv[7]
-    if len(sys.argv)>8:
-        process_only = int(sys.argv[8])
-    else:
-        process_only = 0
+    cfgfile = sys.argv[1]
+    pars = readCFG(cfgfile)
+
+    namefile = pars['namefile']
+    outpath = pars['outpath']
+    rmin = pars['rmin']
+    rmax = pars['rmax']
+    lfilenside = pars['lfilenside']
+    rr0 = pars['rr0']
+    prefix = pars['prefix']
+    if 'process_only' in pars:
+        process_only = pars['process_only']
 
     try:
         os.makedirs(outpath)
@@ -802,7 +811,6 @@ if __name__=='__main__':
     if not process_only:
         header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
                                  rr0, hfilenside=4)
-        
         comm.Barrier()
     else:
         pfiles = glob(outbase+'*')

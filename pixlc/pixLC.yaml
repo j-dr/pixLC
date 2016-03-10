@@ -1,0 +1,7 @@
+namefile   : C1_1050_001.txt 
+outpath    : /lustre/ki/pfs/jderose/simulations/Chinchilla-1/Lb1050_all/lightcone000/
+rmin       : 0.0
+rmax 	   : 4000.0
+lfilenside : 1
+rr0        : 600.0
+prefix     : snapshot_Lightcone_000
