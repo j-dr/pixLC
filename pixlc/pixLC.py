@@ -800,6 +800,8 @@ if __name__=='__main__':
     prefix = pars['prefix']
     if 'process_only' in pars:
         process_only = pars['process_only']
+    else:
+        process_only = False
 
     try:
         os.makedirs(outpath)
