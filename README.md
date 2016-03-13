@@ -11,12 +11,13 @@ its radial bin.
 
 Header format:
 
-  unsigned long npart      // number of particles in the present file
-  unsigned int nside       // nside used to break up radial bin this file falls in
-  unsigned int filenside   // nside value used to sort particles within this file
-  float BoxSize		   // in Mpc/h
-  double mass          	   // particle mass in 1e10 M_sun/h
-  unsigned long npartTotal // total number of particles in the box
-  double Omega0;           
-  double OmegaLambda;      
-  double HubbleParam;      // little 'h'
+    unsigned long npart      : number of particles in the present file
+    unsigned int nside       : nside used to break up radial bin this file falls in
+    unsigned int filenside   : nside value used to sort particles within this file
+    float BoxSize		         : in Mpc/h
+    double mass              : particle mass in 1e10 M_sun/h
+    unsigned long npartTotal : total number of particles in the box
+    double Omega0           
+    double OmegaLambda      
+    double HubbleParam       : little 'h'
+  
