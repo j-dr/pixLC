@@ -26,8 +26,8 @@ if __name__ == '__main__':
     
     # print it out
     print("# of particles:               %d" % h[0])
-    print("Nside of pixels:              %d" % h[1])
-    print("Nside for sorting:            %d" % h[2])
+    print("Nside of pixels:              %d" % h[2])
+    print("Nside for sorting:            %d" % h[1])
     print("box size [Mpc/h]:             %f" % h[3])
     print("particle mass [1e10 Msun/h]:  %g" % h[4])
     print("total # of particles:         %d" % h[5])
