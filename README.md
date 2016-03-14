@@ -13,8 +13,8 @@ its radial bin.
 Header format:
 
     unsigned long npart      : number of particles in the present file
-    unsigned int nside       : nside used to break up radial bin this file falls in
-    unsigned int filenside   : nside value used to sort particles within this file
+    unsigned int nside       : nside value used to sort particles within this file
+    unsigned int filenside   : nside used to break up radial bin this file falls in
     float BoxSize		     : in Mpc/h
     double mass              : particle mass in 1e10 M_sun/h
     unsigned long npartTotal : total number of particles in the box
@@ -28,7 +28,7 @@ The particle data is formatted as follows:
     velocities : 3*npart floats
     ids        : 1*npart unsigned long int
     
-The particles are sorted by the Peano-Hilbert index of the healpix cell they fall within using an nside value specified by filenside in the header of the file.
+The particles are sorted by the Peano-Hilbert index of the healpix cell they fall within using an nside value specified by the nside field in the header of the file.
  
     
     
