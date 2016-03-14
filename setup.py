@@ -4,6 +4,6 @@ setup(
     name='pixlc',
     version='1.0',
     packages=['pixlc',],
-    scripts=['pixlc/pixLC.py'],
+    scripts=['bin/pixLC-cat','pixlc/pixLC.py'],
     long_description=open('README.md').read(),
-)
+    )
