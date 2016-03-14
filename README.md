@@ -26,7 +26,7 @@ The particle data is formatted as follows:
     
     positions  : 3*npart floats
     velocities : 3*npart floats
-    ids        : 3*npart unsigned long int
+    ids        : 1*npart unsigned long int
     
 The particles are sorted by the Peano-Hilbert index of the healpix cell they fall within using an nside value specified by filenside in the header of the file.
  
