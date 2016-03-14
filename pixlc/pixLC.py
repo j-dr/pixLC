@@ -597,8 +597,7 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
     """
     files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
     if len(files)==0:
-        if (rbin==0) & (pix==0):
-            write_empty_header(basepath, rbin, pix, header)
+        write_empty_header(basepath, rbin, pix, header)
         return
 
     tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
