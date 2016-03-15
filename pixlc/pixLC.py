@@ -151,7 +151,6 @@ class Buffer(object):
         
     def write(self):
         #if buffer not empty, write 
-        print('ncurr: {0}'.format(self.ncurr))
         if self.ncurr > 0:
             with open(self.fname, 'ab') as fp:
                 fp.write(self.buff[0:self.ncurr].tobytes())
@@ -331,7 +330,8 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
                         hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
-                        rmax=4000, rstep=25, boxsize=1050, pmass=3.16):
+                        rmax=4000, rstep=25, boxsize=1050, pmass=3.16,
+                        verbose=False):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
     cell files. 
@@ -345,6 +345,11 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         The radius at which we want to perform our first refinement. Further refinements
         will be performed at r_n = rr0*sqrt(2)^n.
     """
+
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+
     #determine the radii to refine the nside value of the healpix cells that
     #the files are broken into
     assert((rmin%rstep==0) and (rmax%rstep==0))
@@ -352,10 +357,11 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                                                    lfilenside, hfilenside=hfilenside)
     bin_offset = rmin//rstep
     rbins2 = rbins*rbins
-
-    print('Max number of refinements: {0}'.format(nr))
-    print('Maximum nside: {0}'.format(rnside[-1]))
-    print('Radii to refine at: {0}'.format(rr))
+    
+    if rank==0:
+        print('Max number of refinements: {0}'.format(nr))
+        print('Maximum nside: {0}'.format(rnside[-1]))
+        print('Radii to refine at: {0}'.format(rr))
     
     header = [0, indexnside, rnside[0], 0.0, 0.0, 0, 0.0, 0.0, 0.0]
     ntot = 0
@@ -365,8 +371,11 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     
     #iterate over files, writing them to radial/healpix cells
     for fnum,filepath in enumerate(filepaths):
-        tprint('    file %6d of %6d' % (fnum+1,nfiles))
+        if verbose or (rank==0):
+            tprint('    file %6d of %6d' % (fnum+1,nfiles))
+
         block = filepath.split('/')[-1].split('.')[-1]
+        lcnum = filepath.split('_')[-1].split('.')[0]
         hdr, pos, vel, ids = readGadgetSnapshot(filepath,
                                                 read_pos=True,
                                                 read_vel=True,
@@ -429,7 +438,6 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
             rind = bins['ridx'][start]
             header[2] = rnside[rind]
 
-            print('Working on radial bin with nside = {0}'.format(rnside[rind]))
             #Determine hpix cell of parts with nside for this radial bin
             pix = hp.vec2pix(rnside[rind], pos[start:end,0], pos[start:end,1],
                              pos[start:end,2], nest=True)
@@ -457,7 +465,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 if rind not in buffs:
                     buffs[rind] = {}
                 if pind not in buffs[rind]:
-                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, block),
+                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, lcnum, block),
                                                 header, nmax=buffersize)
                     
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
@@ -583,7 +591,7 @@ def write_empty_header(basepath, rbin, pix, header):
         fp.write(struct.pack(hdrfmt, *header))
 
 
-def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
+def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None, verbose=False):
     """
     Collect combine all buffer dumps for a particular radial/hpix cell into
     a single file.
@@ -599,8 +607,10 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
     if len(files)==0:
         write_empty_header(basepath, rbin, pix, header)
         return
-
-    tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
+    
+    if verbose:
+        tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
+        
     processed = []
 
     #iterating through files combining them ncomb at a time
@@ -615,7 +625,8 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None):
     for f in processed:
         os.remove(f)
 
-    tprint("    {2} Done processing cell {0} {1}".format(rbin, pix, rank))
+    if verbose:
+        tprint("    {2} Done processing cell {0} {1}".format(rbin, pix, rank))
 
 
 def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
@@ -698,7 +709,7 @@ def nest2peano(pix, order):
     return result + ((face2peanoface[face])<<(2*order));
 
 def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
-                    hfilenside=None):
+                    hfilenside=None, verbose=False):
     """
     Given a list of lightcone outputs from L-Gadget2, write the particles to radial/hpix cells 
     breaking up higher radial bins into more refined healpix cells.
@@ -724,11 +735,12 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
     chunks = [blockpaths[i*step:(i+1)*step] for i in range(size)]
 
     header = write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
-                                 hfilenside=hfilenside, rr0=rr0, rmin=rmin, rmax=rmax)
+                                 hfilenside=hfilenside, rr0=rr0, rmin=rmin, 
+                                 rmax=rmax, verbose=verbose)
     return header
 
 def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
-                      hfilenside=None, header=None):
+                      hfilenside=None, header=None, verbose=False):
     """
     Combine the buffer dumps from map_LC_to_cells into single files for 
     each cell
@@ -770,10 +782,11 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     
     for i, c in enumerate(chunks[rank]):
         if i%50==0:
-            tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
-        
+            if verbose or (rank==0):
+                tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
+
         header[2] = rnside[int(c[0]-bin_offset)]
-        process_cell(outbase, *c, rank=rank, header=header)
+        process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
 
 
 def readCFG(filename):
@@ -802,6 +815,11 @@ if __name__=='__main__':
     else:
         process_only = False
 
+    if 'verbose' in pars:
+        verbose = pars['verbose']
+    else:
+        verbose = False
+
     try:
         os.makedirs(outpath)
     except OSError as e:
@@ -811,10 +829,11 @@ if __name__=='__main__':
 
     if not process_only:
         header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
-                                 rr0, hfilenside=4)
+                                 rr0, hfilenside=4, verbose=verbose)
         comm.Barrier()
     else:
         pfiles = glob(outbase+'*')
         header, idx = read_radial_bin(pfiles[0])
 
-    process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside, hfilenside=4, header=header)
+    process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
+                      hfilenside=4, header=header, verbose=verbose)
