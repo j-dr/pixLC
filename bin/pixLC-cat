@@ -20,7 +20,7 @@ if __name__ == '__main__':
     fname = args[0]
     
     # read the header
-    hdrfmt = 'QIIfdQddd'
+    hdrfmt = 'QIIffQfdddd'
     with open(fname,'r') as fp:
         h = list(struct.unpack(hdrfmt,fp.read(struct.calcsize(hdrfmt))))
     
@@ -28,11 +28,13 @@ if __name__ == '__main__':
     print("# of particles:               %d" % h[0])
     print("Nside of pixels:              %d" % h[2])
     print("Nside for sorting:            %d" % h[1])
-    print("box size [Mpc/h]:             %f" % h[3])
-    print("particle mass [1e10 Msun/h]:  %g" % h[4])
-    print("total # of particles:         %d" % h[5])
-    print("OmegaM:                       %f" % h[6])
-    print("OmegaLambda:                  %f" % h[7])
-    print("h [100 km/s/Mpc]:             %f" % h[8])
+    print("min radius:                   %f" % h[3])
+    print("max radius:                   %f" % h[4])
+    print("total # of parts in rad bin:  %d" % h[5])
+    print("box size [Mpc/h]:             %f" % h[6])
+    print("particle mass [1e10 Msun/h]:  %g" % h[7])
+    print("OmegaM:                       %f" % h[8])
+    print("OmegaLambda:                  %f" % h[9])
+    print("h [100 km/s/Mpc]:             %f" % h[10])
     
     sys.exit(0)
