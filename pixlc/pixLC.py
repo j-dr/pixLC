@@ -131,7 +131,7 @@ class Buffer(object):
     Buffer object for use when recombining cells written in map step.
     Handles one type of data (pos, vel, ids) at a time.
     """
-    def __init__(self,fname,dtype,nmax=10000000):
+    def __init__(self,fname,dtype,nmax=5000000):
         """
         Initialize buffer
         
@@ -192,7 +192,7 @@ class RBuffer(object):
     Buffer object to use for map step. Holds position, velocity, and ids at once
     """
 
-    def __init__(self,fname,header,nmax=8000000):
+    def __init__(self,fname,header,nmax=80000000):
         """
         Initialize buffer
         
@@ -214,7 +214,7 @@ class RBuffer(object):
         self.indexnside = header[1]
         self.fileorder = int(np.log2(self.indexnside))
         self.header = header
-        self.hdrfmt = 'QIIfdQddd' 
+        self.hdrfmt = 'QIIffQfdddd'
 
     def sort_by_peano(self):
         """
@@ -245,10 +245,10 @@ class RBuffer(object):
         self.header[0] = len(peano)
 
     def write(self):
-        self.sort_by_peano()
-        
+
         #if buffer not empty, write data to file
         if self.ncurr > 0:
+            self.sort_by_peano()
             with open(self.fname+'.{0}'.format(self.dumpcount), 'w+b') as fp:
                 fp.write(struct.pack(self.hdrfmt, *self.header))
                 fp.write(self.pidx.tobytes())
@@ -329,9 +329,9 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 
 
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
-                        hfilenside=None, rr0=300.0, buffersize=1000000, rmin=0, 
+                        hfilenside=None, rr0=300.0, buffersize=500000, rmin=0, 
                         rmax=4000, rstep=25, boxsize=1050, pmass=3.16,
-                        verbose=False):
+                        verbose=False, npurge=10):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
     cell files. 
@@ -363,7 +363,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         print('Maximum nside: {0}'.format(rnside[-1]))
         print('Radii to refine at: {0}'.format(rr))
     
-    header = [0, indexnside, rnside[0], 0.0, 0.0, 0, 0.0, 0.0, 0.0]
+    header = [0, indexnside, rnside[0], rmin, rmax, 0, 0.0, 0.0, 0.0, 0.0, 0.0]
     ntot = 0
         
     nfiles = len(filepaths)
@@ -374,8 +374,15 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         if verbose or (rank==0):
             tprint('    file %6d of %6d' % (fnum+1,nfiles))
 
+        if (fnum+1)%(npurge-1)==0:
+            #dump all buffers every npurge files to
+            #get rid of data that is just sitting
+            #in memory
+            for rind in buffs.keys():
+                for pind in buffs[rind].keys():
+                    buffs[rind][pind].write()
+
         block = filepath.split('/')[-1].split('.')[-1]
-        lcnum = filepath.split('_')[-1].split('.')[0]
         hdr, pos, vel, ids = readGadgetSnapshot(filepath,
                                                 read_pos=True,
                                                 read_vel=True,
@@ -384,9 +391,8 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         header[-1] = hdr.HubbleParam
         header[-2] = hdr.OmegaLambda
         header[-3] = hdr.Omega0
-        header[-4] = hdr.npartTotal[1]
-        header[-5] = hdr.mass[1]
-        header[-6] = hdr.BoxSize
+        header[-4] = hdr.mass[1]
+        header[-5] = hdr.BoxSize
         
         r2 = pos[:,0]**2 + pos[:,1]**2 + pos[:,2]**2
 
@@ -465,7 +471,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 if rind not in buffs:
                     buffs[rind] = {}
                 if pind not in buffs[rind]:
-                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, lcnum, block),
+                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, rank),
                                                 header, nmax=buffersize)
                     
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
@@ -484,6 +490,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
             del buffs[rind][pind]
 
     assert( nwrit == ntot )
+
 
     return header
 
@@ -505,7 +512,7 @@ def combine_cell_list(flist):
             wf = f+'mg1'
 
     #open the files
-    hdrfmt = 'QIIfdQddd'
+    hdrfmt = 'QIIffQfdddd'
     rps = [open(f, 'rb') for f in flist]
     idxs = []
 
@@ -521,7 +528,13 @@ def combine_cell_list(flist):
             h[0] += hi[0]
             idx += idxi
 
-        assert( hi[2:] == h[2:] )
+        if not (hi[1:5] == h[1:5]) & (hi[6:]==h[6:]):
+            print('Header data does not match between files {0} and {1}!'.format(flist[0], flist[i]))
+            print('Header data was: ')
+            print('{0}'.format(h[2:]))
+            print('and')
+            print('{0}'.format(hi[2:]))
+            return
         
         idxs.append(idxi)
         nadd = 0
@@ -570,7 +583,7 @@ def combine_cell_list(flist):
     for rp in rps:
         rp.close()
 
-    return wf
+    return wf, h
 
 
 def write_empty_header(basepath, rbin, pix, header):
@@ -585,7 +598,7 @@ def write_empty_header(basepath, rbin, pix, header):
     header -- The header containing the correct file nside, index
               nside, cosmology and other metadata
     """
-    hdrfmt = 'QIIfdQddd'
+    hdrfmt = 'QIIffQfdddd'
     header[0] = 0
     with open('{0}_{1}_{2}'.format(basepath, rbin, pix), 'w') as fp:
         fp.write(struct.pack(hdrfmt, *header))
@@ -606,18 +619,20 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None, verbose=
     files = deque(glob('{0}_{1}_{2}_*'.format(basepath, rbin, pix)))
     if len(files)==0:
         write_empty_header(basepath, rbin, pix, header)
-        return
+        return 0
     
     if verbose:
         tprint("    {2} Processing cell {0} {1}, nfiles = {3}".format(rbin, pix, rank, len(files)))
         
     processed = []
-
+    count = 0
     #iterating through files combining them ncomb at a time
     while len(files)>1:
         npop = min(ncomb, len(files))
         flist = [files.popleft() for i in range(npop)]
-        files.append(combine_cell_list(flist))
+        cfile, hdr = combine_cell_list(flist)
+        count += hdr[0]
+        files.append(cfile)
         processed.extend(flist)
 
     os.rename(files[0], '{0}_{1}_{2}'.format(basepath, rbin, pix))
@@ -627,6 +642,8 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None, verbose=
 
     if verbose:
         tprint("    {2} Done processing cell {0} {1}".format(rbin, pix, rank))
+
+    return count
 
 
 def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
@@ -639,7 +656,7 @@ def read_radial_bin(filename, read_pos=False, read_vel=False, read_ids=False):
                 data read.
     read_xxx -- Whether or not to read xxx
     """
-    hdrfmt = 'QIIfdQddd'
+    hdrfmt = 'QIIffQfdddd'
     idxfmt = np.dtype('i8')
     to_read = np.array([read_pos, read_vel, read_ids])
     fmt = [np.dtype(np.float32), np.dtype(np.float32), np.dtype(np.uint64)]
@@ -739,6 +756,19 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
                                  rmax=rmax, verbose=verbose)
     return header
 
+
+def update_radial_counts(counts, outbase, pix, cell):
+
+    fname = "{0}_{1}_{2}".format(outbase, pix, cell)
+    hdr, idx = read_radial_bin(fname)
+    hdrfmt = 'QIIffQfdddd'
+    hdr[5] = counts
+
+    with open(fname, 'r+b') as fp:
+        fp.write(struct.pack(hdrfmt, hdr))
+    
+
+
 def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
                       hfilenside=None, header=None, verbose=False):
     """
@@ -767,9 +797,11 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     #if rmin is not zero add offset so that bin index is assigned unique radial range
     bin_offset = rmin//rstep
     rbins = np.arange((rmax-rmin)//rstep, dtype=np.int64)
-
+    rcounts_r = np.zeros(len(rbins))
+    rcounts = np.zeros(len(rbins))
     #determine number of pixels for each radial bin
     rnpix = 12*rnside**2
+    
     idx = np.cumsum(rnpix)
     idx = np.hstack([np.zeros(1),idx])
     cells = np.ndarray((idx[-1],2), dtype=np.int64)
@@ -786,7 +818,12 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
                 tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
 
         header[2] = rnside[int(c[0]-bin_offset)]
-        process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
+        rcounts[c[0]-bin_offset] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
+
+    comm.Allreduce(rcounts_r, rcounts)
+
+    for i, c in enumerate(chunks[rank]):
+        update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
 
 
 def readCFG(filename):
@@ -810,13 +847,14 @@ if __name__=='__main__':
     lfilenside = pars['lfilenside']
     rr0 = pars['rr0']
     prefix = pars['prefix']
+
     if 'process_only' in pars:
-        process_only = pars['process_only']
+        process_only = bool(pars['process_only'])
     else:
         process_only = False
 
     if 'verbose' in pars:
-        verbose = pars['verbose']
+        verbose = bool(pars['verbose'])
     else:
         verbose = False
 

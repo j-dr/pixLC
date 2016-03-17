@@ -13,18 +13,20 @@ its radial bin.
 Header format:
 
     unsigned long npart      : number of particles in the present file
-    unsigned int indexnside       : nside value used to sort particles within this file
+    unsigned int indexnside  : nside value used to sort particles within this file
     unsigned int filenside   : nside used to break up radial bin this file falls in
-    float BoxSize		     : in Mpc/h
+    float rmin	 	     : minimum radius kept from this box
+    float rmax		     : maximum radius
+    unsigned long npartrad   : number of particles in this radial bin
+    float boxsize	     : in Mpc/h
     double mass              : particle mass in 1e10 M_sun/h
-    unsigned long npartTotal : total number of particles in the box
-    double Omega0           
-    double OmegaLambda      
-    double HubbleParam       : little 'h'
+    double omega0           
+    double omegalambda      
+    double hubbleparam       : little 'h'
 
     
 The particles are sorted by the Peano-Hilbert index of the healpix cell they fall within using an nside value specified by the indexnside field in the header of the file.
-Immediately after the header there is a list of $12\times indexnside^2$ unsigned long ints corresponding to the number of particles contained in each healpix cell of nside=indexnside. The healpix cells in this index are sorted according to their Peano-Hilbers index as well.
+Immediately after the header there is a list of $12\times indexnside^2$ long ints corresponding to the number of particles contained in each healpix cell of nside=indexnside. The healpix cells in this index are sorted according to their Peano-Hilbers index as well.
 
 Following this index is the particle data formatted as follows:
     
