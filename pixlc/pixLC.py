@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
 from collections import namedtuple, deque
-from mpi4py import MPI
+if __name__=="__main__":
+    from mpi4py import MPI
 from glob import glob
 from copy import copy
 import numpy as np
@@ -329,7 +330,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 
 
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
-                        hfilenside=None, rr0=300.0, buffersize=500000, rmin=0, 
+                        hfilenside=None, rr0=300.0, buffersize=250000, rmin=0, 
                         rmax=4000, rstep=25, boxsize=1050, pmass=3.16,
                         verbose=False, npurge=10):
     """
@@ -358,10 +359,19 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     bin_offset = rmin//rstep
     rbins2 = rbins*rbins
     
+    outdir = "/".join(outbase.split('/')[:-1])
+    prefix = outbase.split('/')[-1]
+    
     if rank==0:
         print('Max number of refinements: {0}'.format(nr))
         print('Maximum nside: {0}'.format(rnside[-1]))
         print('Radii to refine at: {0}'.format(rr))
+
+        for ri in range(len(rbins)-1):
+            try:
+                os.mkdir("{0}/{1}".format(outdir,ri))
+            except OSError as e:
+                print(e)
     
     header = [0, indexnside, rnside[0], rmin, rmax, 0, 0.0, 0.0, 0.0, 0.0, 0.0]
     ntot = 0
@@ -471,7 +481,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 if rind not in buffs:
                     buffs[rind] = {}
                 if pind not in buffs[rind]:
-                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, rank),
+                    buffs[rind][pind] = RBuffer(outdir+'/{0}/{1}_{0}_{2}_{3}'.format(int(rind+bin_offset), prefix, pind, rank),
                                                 header, nmax=buffersize)
                     
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
@@ -757,15 +767,16 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
     return header
 
 
-def update_radial_counts(counts, outbase, pix, cell):
+def update_radial_counts(counts, outbase, prefix, pix, cell):
 
-    fname = "{0}_{1}_{2}".format(outbase, pix, cell)
+    fname = "{0}/{2}/{1}_{2}_{3}".format(outbase, prefix, pix, cell)
     hdr, idx = read_radial_bin(fname)
+
     hdrfmt = 'QIIffQfdddd'
     hdr[5] = counts
 
     with open(fname, 'r+b') as fp:
-        fp.write(struct.pack(hdrfmt, hdr))
+        fp.write(struct.pack(hdrfmt, *hdr))
     
 
 
@@ -788,6 +799,9 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
+
+    outdir = "/".join(outbase.split('/')[:-1])
+    prefix = outbase.split('/')[-1]
     
     assert((rmin%rstep==0) and (rmax%rstep==0))
     #determine the nside to use for each radial bin
@@ -801,7 +815,7 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     rcounts = np.zeros(len(rbins))
     #determine number of pixels for each radial bin
     rnpix = 12*rnside**2
-    
+
     idx = np.cumsum(rnpix)
     idx = np.hstack([np.zeros(1),idx])
     cells = np.ndarray((idx[-1],2), dtype=np.int64)
@@ -818,12 +832,12 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
                 tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
 
         header[2] = rnside[int(c[0]-bin_offset)]
-        rcounts[c[0]-bin_offset] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
+        rcounts[c[0]-bin_offset] += process_cell(outdir+'/{0}/{1}'.format(c[0], prefix), *c, rank=rank, header=header, verbose=verbose)
 
     comm.Allreduce(rcounts_r, rcounts)
 
     for i, c in enumerate(chunks[rank]):
-        update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
+        update_radial_counts(rcounts[c[0]-bin_offset], outdir, prefix, *c)
 
 
 def readCFG(filename):
@@ -870,7 +884,7 @@ if __name__=='__main__':
                                  rr0, hfilenside=4, verbose=verbose)
         comm.Barrier()
     else:
-        pfiles = glob(outbase+'*')
+        pfiles = glob(outpath+'/*/*')
         header, idx = read_radial_bin(pfiles[0])
 
     process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
