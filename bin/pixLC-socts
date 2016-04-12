@@ -7,23 +7,23 @@ import sys
 import os
 
 
-def octvert(oct):
+def octvert(octn):
     
-    if oct==0:
+    if octn==0:
         vert = [[1,0,0], [0,1,0], [0,0,1]]
-    elif oct==1:
+    elif octn==1:
         vert = [[-1,0,0], [0,1,0], [0,0,1]]
-    elif oct==2:
+    elif octn==2:
         vert = [[-1,0,0], [0,-1,0], [0,0,1]]
-    elif oct==3:
+    elif octn==3:
         vert = [[1,0,0], [0,-1,0], [0,0,1]]
-    elif oct==4:
+    elif octn==4:
         vert = [[1,0,0], [0,1,0], [0,0,-1]]
-    elif oct==5:
+    elif octn==5:
         vert = [[-1,0,0], [0,1,0], [0,0,-1]]
-    elif oct==6:
+    elif octn==6:
         vert = [[-1,0,0], [0,-1,0], [0,0,-1]]
-    elif oct==7:
+    elif octn==7:
         vert = [[1,0,0], [0,-1,0], [0,0,-1]]
 
     return vert
