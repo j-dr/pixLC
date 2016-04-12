@@ -43,13 +43,12 @@ if __name__=="__main__":
  						  hfilenside=hfnside)
     rbins = np.arange(len(rbins)-1, dtype=int) + float(cfg['rmin'])//25.0
     rbins = np.array([int(r) for r in rbins])
-    with open('{0}/octlist.txt'.format(cfg['outpath']), 'w') as fp:   						  
-        for o in octs:
-            vert = octvert(o)
-            for i, r in enumerate(rbins[:-1]):
-                pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
-                for p in pix:
-                    fp.write("{0}/{1}_{2}_{3}\n".format(cfg['outpath'], cfg['prefix'], r, p))
+    for o in octs:
+        vert = octvert(o)
+        for i, r in enumerate(rbins[:-1]):
+            pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
+            for p in pix:
+                print("{0}/{1}_{2}_{3}\n".format(cfg['outpath'], cfg['prefix'], r, p))
        
    
 
