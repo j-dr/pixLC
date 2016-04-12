@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
 from collections import namedtuple, deque
+from astropy.cosmology import FlatLambdaCDM
 if __name__=="__main__":
     from mpi4py import MPI
 from glob import glob
 from copy import copy
 import numpy as np
 import healpy as hp
+import fitsio
 import struct
 import time
 import os
@@ -332,7 +334,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
                         hfilenside=None, rr0=300.0, buffersize=250000, rmin=0, 
                         rmax=4000, rstep=25, boxsize=1050, pmass=3.16,
-                        verbose=False, npurge=10):
+                        verbose=True, npurge=10):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
     cell files. 
@@ -359,19 +361,10 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
     bin_offset = rmin//rstep
     rbins2 = rbins*rbins
     
-    outdir = "/".join(outbase.split('/')[:-1])
-    prefix = outbase.split('/')[-1]
-    
     if rank==0:
         print('Max number of refinements: {0}'.format(nr))
         print('Maximum nside: {0}'.format(rnside[-1]))
         print('Radii to refine at: {0}'.format(rr))
-
-        for ri in range(len(rbins)-1):
-            try:
-                os.mkdir("{0}/{1}".format(outdir,ri))
-            except OSError as e:
-                print(e)
     
     header = [0, indexnside, rnside[0], rmin, rmax, 0, 0.0, 0.0, 0.0, 0.0, 0.0]
     ntot = 0
@@ -481,7 +474,7 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 if rind not in buffs:
                     buffs[rind] = {}
                 if pind not in buffs[rind]:
-                    buffs[rind][pind] = RBuffer(outdir+'/{0}/{1}_{0}_{2}_{3}'.format(int(rind+bin_offset), prefix, pind, rank),
+                    buffs[rind][pind] = RBuffer(outbase+'_{0}_{1}_{2}'.format(int(rind+bin_offset), pind, rank),
                                                 header, nmax=buffersize)
                     
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
@@ -767,16 +760,15 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
     return header
 
 
-def update_radial_counts(counts, outbase, prefix, pix, cell):
+def update_radial_counts(counts, outbase, pix, cell):
 
-    fname = "{0}/{2}/{1}_{2}_{3}".format(outbase, prefix, pix, cell)
+    fname = "{0}_{1}_{2}".format(outbase, pix, cell)
     hdr, idx = read_radial_bin(fname)
-
     hdrfmt = 'QIIffQfdddd'
     hdr[5] = counts
 
     with open(fname, 'r+b') as fp:
-        fp.write(struct.pack(hdrfmt, *hdr))
+        fp.write(struct.pack(hdrfmt, hdr))
     
 
 
@@ -799,9 +791,6 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
-
-    outdir = "/".join(outbase.split('/')[:-1])
-    prefix = outbase.split('/')[-1]
     
     assert((rmin%rstep==0) and (rmax%rstep==0))
     #determine the nside to use for each radial bin
@@ -815,7 +804,7 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     rcounts = np.zeros(len(rbins))
     #determine number of pixels for each radial bin
     rnpix = 12*rnside**2
-
+    
     idx = np.cumsum(rnpix)
     idx = np.hstack([np.zeros(1),idx])
     cells = np.ndarray((idx[-1],2), dtype=np.int64)
@@ -832,12 +821,12 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
                 tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
 
         header[2] = rnside[int(c[0]-bin_offset)]
-        rcounts[c[0]-bin_offset] += process_cell(outdir+'/{0}/{1}'.format(c[0], prefix), *c, rank=rank, header=header, verbose=verbose)
+        rcounts[c[0]-bin_offset] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
 
     comm.Allreduce(rcounts_r, rcounts)
 
     for i, c in enumerate(chunks[rank]):
-        update_radial_counts(rcounts[c[0]-bin_offset], outdir, prefix, *c)
+        update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
 
 
 def readCFG(filename):
@@ -846,6 +835,102 @@ def readCFG(filename):
         pars = yaml.load(fp)
 
     return pars
+
+
+def symlinkPaths(cfgfiles, zedges, outpath):
+    """
+    Given a list of configuration files, create a new directory
+    and link files from each of the original directories 
+    according to the redshifts in zedges
+    """
+
+    for i, cfg in enumerate(cfgfiles):
+        cfg   = readCFG(cfg)
+        files = np.array(glob("{0}/*".format(cfg['outpath'])))
+        rad   = np.array([int(f.split('_')[-2]) for f in files])
+        
+        if i==0:
+            hdr, fidx  = read_radial_bin(files[0])
+            
+            cosmo = FlatLambdaCDM(H0=100*hdr[-1], Om0=hdr[-3])
+        else:
+            lidx, = np.where(rad>idx)
+            files = files[lidx]
+            rad   = rad[lidx]
+            
+        r     = cosmo.comoving_distance(zedges[i])/hdr[-1]
+        rbins = np.arange((float(cfg['rmax']) + 25 - 1)//25)
+        idx   = rbins.searchsorted(r)
+        hidx  = np.where(rad<idx)
+
+        files = files[hidx]
+
+        for f in files:
+            fs = f.split('/')
+            os.symlink(f, "{0}/{1}".format(outpath, fs[-1]))
+            
+
+def particleSubset(basepath, outpath, fracsamp=0.002, onside=8):
+    from mpi4py import MPI
+    
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+
+    files  = glob("{0}/*".format(basepath))
+    fpproc = (len(files) + size - 1)//size
+
+    for f in files[rank*fpproc:(rank+1)*fpproc]:
+
+        hdr, pidx, pos, ids = read_radial_bin(f, read_pos=True, read_ids=True)
+        nsamp = int(len(ids)*fracsamp)
+        if nsamp==0:
+            continue
+
+        idx = np.random.random_integers(0, len(ids)-1, nsamp)
+        odtype = np.dtype([('ID', np.int64), ('PX',pos.dtype), ('PY',pos.dtype), ('PZ',pos.dtype)])
+        out = np.zeros(nsamp, dtype=odtype)
+
+        out['PX'] = pos[::3][idx]
+        out['PY'] = pos[1::3][idx]
+        out['PZ'] = pos[2::3][idx]
+        out['ID'] = ids[idx]
+        print(out['ID'][0])
+
+        fpix = int(f.split('_')[-1])
+        if hdr[2]<onside:
+            pix = hp.vec2pix(onside, out['PX'], out['PY'], out['PZ'], nest=True)
+            pidx = pix.argsort()
+            pix = pix[pidx]
+            pidx = pix[1:] - pix[:-1]
+            pidx = np.hstack([[0], pidx])
+            pix = pix[pidx]
+            pidx = np.hstack([pidx, [len(ids)]])
+
+            for i, p in enumerate(pix):
+                fitsio.write("{0}/{1}.{2}.fits".format(outpath, f.split('/')[-1], p), out[pidx[i]:pidx[i+1]])
+        else:
+            pix = hp.vec2pix(onside, out['PX'][0], out['PY'][0], out['PZ'][0], nest=True)
+            fitsio.write("{0}/{1}.{2}.fits".format(outpath, f.split('/')[-1], pix), out)
+
+    comm.Barrier()
+
+    pix = np.arange(12*onside**2)
+    ppproc = (len(pix) + size - 1)//len(pix)
+
+    for p in pix[rank*ppproc:(rank+1):ppproc]:
+        files = glob("{0}*.{1}.fits".format(outbase, p))
+
+        fits = fitsio.FITS("{0}/lc_subsamp.{1}.fits".format(outbase, p), 'rw')
+        for i, f in enumerate(files):
+            data = fitsio.read(f)
+            if i==0:
+                fits[-1].write(data)
+            else:
+                fits[-1].append(data)
+
+        fits.close()
+
 
 if __name__=='__main__':
 
@@ -884,7 +969,7 @@ if __name__=='__main__':
                                  rr0, hfilenside=4, verbose=verbose)
         comm.Barrier()
     else:
-        pfiles = glob(outpath+'/*/*')
+        pfiles = glob(outbase+'*')
         header, idx = read_radial_bin(pfiles[0])
 
     process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
