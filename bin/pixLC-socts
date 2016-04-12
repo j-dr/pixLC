@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+from pixlc.pixLC import readCFG, create_refinement_plan
+import healpy as hp
+import numpy as np
+import sys
+import os
+
+
+def octvert(oct):
+    
+    if oct==0:
+        vert = [[1,0,0], [0,1,0], [0,0,1]]
+    elif oct==1:
+        vert = [[-1,0,0], [0,1,0], [0,0,1]]
+    elif oct==2:
+        vert = [[-1,0,0], [0,-1,0], [0,0,1]]
+    elif oct==3:
+        vert = [[1,0,0], [0,-1,0], [0,0,1]]
+    elif oct==4:
+        vert = [[1,0,0], [0,1,0], [0,0,-1]]
+    elif oct==5:
+        vert = [[-1,0,0], [0,1,0], [0,0,-1]]
+    elif oct==6:
+        vert = [[-1,0,0], [0,-1,0], [0,0,-1]]
+    elif oct==7:
+        vert = [[1,0,0], [0,-1,0], [0,0,-1]]
+
+    return vert
+
+if __name__=="__main__":
+
+    cfg  = sys.argv[1]
+    octs = sys.argv[2:]
+    octs = [int(o) for o in octs]
+    cfg = readCFG(cfg)
+    if 'hfilenside' in cfg.keys():
+        hfnside = int(cfg['hfilenside'])
+    else:
+        hfnside = 4
+    rbins, rr, rnside, nr = create_refinement_plan(float(cfg['rmin']), float(cfg['rmax']),
+ 						  25.0, float(cfg['rr0']), int(cfg['lfilenside']),
+ 						  hfilenside=hfnside)
+    rbins = np.arange(len(rbins)-1, dtype=int) + float(cfg['rmin'])//25.0
+    rbins = np.array([int(r) for r in rbins])
+    with open('{0}/octlist.txt'.format(cfg['outpath']), 'w') as fp:   						  
+        for o in octs:
+            vert = octvert(o)
+            for i, r in enumerate(rbins[:-1]):
+                pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
+                for p in pix:
+                    fp.write("{0}/{1}_{2}_{3}\n".format(cfg['outpath'], cfg['prefix'], r, p))
+       
+   
+
