@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+import healpy as hp
+import numpy as np
+import fitsio
+import sys
+import os
+
+NPERPIX = 2**16
+
+def octvert(octn):
+    
+    if octn==0:
+        vert = [[1,0,0], [0,1,0], [0,0,1]]
+    elif octn==1:
+        vert = [[-1,0,0], [0,1,0], [0,0,1]]
+    elif octn==2:
+        vert = [[-1,0,0], [0,-1,0], [0,0,1]]
+    elif octn==3:
+        vert = [[1,0,0], [0,-1,0], [0,0,1]]
+    elif octn==4:
+        vert = [[1,0,0], [0,1,0], [0,0,-1]]
+    elif octn==5:
+        vert = [[-1,0,0], [0,1,0], [0,0,-1]]
+    elif octn==6:
+        vert = [[-1,0,0], [0,-1,0], [0,0,-1]]
+    elif octn==7:
+        vert = [[1,0,0], [0,-1,0], [0,0,-1]]
+
+    return vert
+
+if __name__=="__main__":
+    
+
+    outbase = sys.argv[1]
+    nside   = int(sys.argv[2])
+    octn    = int(sys.argv[3])
+    order   = int(np.log2(nside))
+    sorder  = int(np.log2(NPERPIX))//2
+    vert = octvert(octn)
+    pix  = hp.query_polygon(nside, vert, nest=True, inclusive=True)
+    
+    count = 0
+    odtype = np.dtype([('ID',np.int64), ('PX',np.float), ('PY',np.float), ('PZ', np.float)])
+
+    for p in pix:
+        print('Generating pixel {0}'.format(p))
+        base   = p >> 2 * order;
+        subpix = p & ( ( 1 << ( 2 * order ) ) - 1 )
+        hopix  = ( ( base * ( 1 << ( 2 * order ) ) + subpix )
+                         << 2 * ( order - order ) ) + np.arange(1 << 2 * ( sorder - order ))
+        vec    = np.array(hp.pix2vec(2**sorder, hopix)).T
+        vec    = np.sqrt(4000)*np.random.rand(len(vec),1)*vec
+        ids    = np.arange(len(vec))+count
+        out    = np.zeros(len(vec), dtype=odtype)
+        out["ID"] = ids
+        out["PX"] = vec[:,0]
+        out["PY"] = vec[:,1]
+        out["PZ"] = vec[:,2]
+        count += len(ids)
+        
+        fitsio.write("{0}/hopts.{1}.fits".format(outbase, p), out)
+        
+
+        
+    
