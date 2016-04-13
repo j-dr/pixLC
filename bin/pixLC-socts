@@ -7,23 +7,23 @@ import sys
 import os
 
 
-def octvert(oct):
+def octvert(octn):
     
-    if oct==0:
+    if octn==0:
         vert = [[1,0,0], [0,1,0], [0,0,1]]
-    elif oct==1:
+    elif octn==1:
         vert = [[-1,0,0], [0,1,0], [0,0,1]]
-    elif oct==2:
+    elif octn==2:
         vert = [[-1,0,0], [0,-1,0], [0,0,1]]
-    elif oct==3:
+    elif octn==3:
         vert = [[1,0,0], [0,-1,0], [0,0,1]]
-    elif oct==4:
+    elif octn==4:
         vert = [[1,0,0], [0,1,0], [0,0,-1]]
-    elif oct==5:
+    elif octn==5:
         vert = [[-1,0,0], [0,1,0], [0,0,-1]]
-    elif oct==6:
+    elif octn==6:
         vert = [[-1,0,0], [0,-1,0], [0,0,-1]]
-    elif oct==7:
+    elif octn==7:
         vert = [[1,0,0], [0,-1,0], [0,0,-1]]
 
     return vert
@@ -43,13 +43,12 @@ if __name__=="__main__":
  						  hfilenside=hfnside)
     rbins = np.arange(len(rbins)-1, dtype=int) + float(cfg['rmin'])//25.0
     rbins = np.array([int(r) for r in rbins])
-    with open('{0}/octlist.txt'.format(cfg['outpath']), 'w') as fp:   						  
-        for o in octs:
-            vert = octvert(o)
-            for i, r in enumerate(rbins[:-1]):
-                pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
-                for p in pix:
-                    fp.write("{0}/{1}_{2}_{3}\n".format(cfg['outpath'], cfg['prefix'], r, p))
+    for o in octs:
+        vert = octvert(o)
+        for i, r in enumerate(rbins[:-1]):
+            pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
+            for p in pix:
+                print("{0}/{1}_{2}_{3}\n".format(cfg['outpath'], cfg['prefix'], r, p))
        
    
 
