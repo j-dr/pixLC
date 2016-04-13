@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-from pixlc.pixLC import readCFG, create_refinement_plan
+from pixLC import readCFG, create_refinement_plan
 import healpy as hp
 import numpy as np
 import sys
@@ -43,9 +43,14 @@ if __name__=="__main__":
  						  hfilenside=hfnside)
     rbins = np.arange(len(rbins)-1, dtype=int) + float(cfg['rmin'])//25.0
     rbins = np.array([int(r) for r in rbins])
-    for o in octs:
-        vert = octvert(o)
-        for i, r in enumerate(rbins[:-1]):
-            pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
-            for p in pix:
-                print("{0}/{1}_{2}_{3}".format(cfg['outpath'], cfg['prefix'], r, p))
+    for i, r in enumerate(rbins[:-1]):
+        pix = []
+        for o in octs:
+            vert = octvert(o)
+            pix.append(hp.query_polygon(rnside[i], vert, inclusive=True, nest=True))
+
+        pix = np.hstack(pix)
+        pix = np.unique(pix)
+        
+        for p in pix:
+            print("{0}/{1}_{2}_{3}".format(cfg['outpath'], cfg['prefix'], r, p))

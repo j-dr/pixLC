@@ -50,7 +50,7 @@ if __name__=="__main__":
         hopix  = ( ( base * ( 1 << ( 2 * order ) ) + subpix )
                          << 2 * ( order - order ) ) + np.arange(1 << 2 * ( sorder - order ))
         vec    = np.array(hp.pix2vec(2**sorder, hopix)).T
-        vec    = np.sqrt(4000)*np.random.rand(len(vec),1)*vec
+        vec    = np.sqrt(3750)*np.random.rand(len(vec),1)*vec
         ids    = np.arange(len(vec))+count
         out    = np.zeros(len(vec), dtype=odtype)
         out["ID"] = ids
