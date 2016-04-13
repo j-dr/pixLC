@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+from astropy.cosmology import FlatLambdaCDM
+from glob import glob
+from pixLC import readCFG, read_radial_bin
+import numpy as np
+import os
+import sys
+
+def symlinkPaths(cfgfiles, zedges, outpath):
+    """
+    Given a list of configuration files, create a new directory
+    and link files from each of the original directories 
+    according to the redshifts in zedges
+    """
+
+    for i, cfg in enumerate(cfgfiles):
+        cfg   = readCFG(cfg)
+        files = np.array(glob("{0}/*".format(cfg['outpath'])))
+        rad   = np.array([int(f.split('_')[-2]) for f in files])
+        
+        if i==0:
+            hdr, fidx  = read_radial_bin(files[0])
+            
+            cosmo = FlatLambdaCDM(H0=100, Om0=hdr[-3])
+        else:
+            lidx, = np.where(rad>=idx)
+            files = files[lidx]
+            rad   = rad[lidx]
+            
+        r     = cosmo.comoving_distance(zedges[i]).value//25
+        rbins = np.arange((float(cfg['rmax']) + 25 - 1)//25)
+        idx   = rbins.searchsorted(r)
+        hidx  = np.where(rad<idx)
+
+        files = files[hidx]
+
+        for f in files:
+            fs = f.split('/')
+            os.symlink(f, "{0}/{1}".format(outpath, fs[-1]))
+
+
+
+if __name__=="__main__":
+
+    nbox     = int(sys.argv[1])
+    cfgfiles = sys.argv[2:2+nbox]
+    zedges   = sys.argv[2+nbox:2+2*nbox]
+    outpath  = sys.argv[-1]
+
+    zedges = [float(z) for z in zedges]
+
+    symlinkPaths(cfgfiles, zedges, outpath)

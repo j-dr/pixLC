@@ -837,39 +837,6 @@ def readCFG(filename):
     return pars
 
 
-def symlinkPaths(cfgfiles, zedges, outpath):
-    """
-    Given a list of configuration files, create a new directory
-    and link files from each of the original directories 
-    according to the redshifts in zedges
-    """
-
-    for i, cfg in enumerate(cfgfiles):
-        cfg   = readCFG(cfg)
-        files = np.array(glob("{0}/*".format(cfg['outpath'])))
-        rad   = np.array([int(f.split('_')[-2]) for f in files])
-        
-        if i==0:
-            hdr, fidx  = read_radial_bin(files[0])
-            
-            cosmo = FlatLambdaCDM(H0=100*hdr[-1], Om0=hdr[-3])
-        else:
-            lidx, = np.where(rad>idx)
-            files = files[lidx]
-            rad   = rad[lidx]
-            
-        r     = cosmo.comoving_distance(zedges[i])/hdr[-1]
-        rbins = np.arange((float(cfg['rmax']) + 25 - 1)//25)
-        idx   = rbins.searchsorted(r)
-        hidx  = np.where(rad<idx)
-
-        files = files[hidx]
-
-        for f in files:
-            fs = f.split('/')
-            os.symlink(f, "{0}/{1}".format(outpath, fs[-1]))
-            
-
 def particleSubset(basepath, outpath, fracsamp=0.002, onside=8):
     from mpi4py import MPI
     
