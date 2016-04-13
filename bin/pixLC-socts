@@ -48,7 +48,4 @@ if __name__=="__main__":
         for i, r in enumerate(rbins[:-1]):
             pix = hp.query_polygon(rnside[i], vert, inclusive=True, nest=True)
             for p in pix:
-                print("{0}/{1}_{2}_{3}\n".format(cfg['outpath'], cfg['prefix'], r, p))
-       
-   
-
+                print("{0}/{1}_{2}_{3}".format(cfg['outpath'], cfg['prefix'], r, p))
