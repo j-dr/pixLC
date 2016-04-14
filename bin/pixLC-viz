@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-    %prog command [options] nside output_file plane1_basename [plane2_basename]
+    %prog [options] nside output_file plane1_basename [plane2_basename]
     reduce pixLC output into a single HEALPix map
 
     nside - nside of map to make
