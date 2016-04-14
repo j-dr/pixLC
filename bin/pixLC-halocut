@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+from __future__ import print_function, division
+from pixLC import readCFG
+from helpers.SimulationAnalysis import readHlist
+import numpy as np
+import pandas as pd
+import sys
+import fitsio
+
+
+pusecols = ['ID', 'DESCID', 'MVIR', 'VMAX', 'VRMS', 'RVIR', 'RS', 'NP', 'X', 'Y', 'Z', 'VX', 'VY', 'VZ', 'PID']
+
+
+
+if __name__=='__main__':
+
+    cfg = sys.argv[1]
+    halofiles = sys.argv[2:]
+
+    cfg = readCFG(cfg)
+
+    for hf in halofiles:
+        fs = hf.split('.')
+
+        halos = readHlist(hf)
+        if fs[-1]=='parents.reformat':
+            halos = halos[pusecols]
+            
+        r = np.sqrt(halos['X']**2 + halos['Y']**2 + halos['Z']**2)
+        ridx = np.where((float(cfg['rmin'])<=r) & (r<float(cfg['rmax'])))
+        halos = halos[ridx]
+
+        fs = hf.split('/')
+        
+        np.savetxt('/'.join(fs[:-1])+'/cut_'+fs[-1], halos, fmt='%.3f')
