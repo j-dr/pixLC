@@ -768,7 +768,7 @@ def update_radial_counts(counts, outbase, pix, cell):
     hdr[5] = counts
 
     with open(fname, 'r+b') as fp:
-        fp.write(struct.pack(hdrfmt, hdr))
+        fp.write(struct.pack(hdrfmt, *hdr))
     
 
 
