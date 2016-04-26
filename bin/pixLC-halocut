@@ -31,5 +31,6 @@ if __name__=='__main__':
         halos = halos[ridx]
 
         fs = hf.split('/')
-        
-        np.savetxt('/'.join(fs[:-1])+'/cut_'+fs[-1], halos, fmt='%.3f')
+        hfmt = '%d %d %.3e %.2f %.2f %.3f %.3f %d %.5f %.5f %.5f %.2f %.2f %.2f %d'
+        hdr = ' '.join(pusecols)
+        np.savetxt('/'.join(fs[:-1])+'/cut_'+fs[-1], halos, fmt=hfmt, header=hdr)
