@@ -36,4 +36,4 @@ if __name__=='__main__':
         if 'parents' in hf:
             np.savetxt('/'.join(fs[:-1])+'/cut_'+fs[-1], halos, fmt=hfmt, header=hdr)
         else:
-            fitsio.write('/'.join(fs[:-1])+'/cut_'+fs[-1], halos)
+            fitsio.write('/'.join(fs[:-1])+'/cut_'+fs[-1]+'.fits', halos)
