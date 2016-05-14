@@ -15,7 +15,7 @@ def symlinkPaths(cfgfile, zlow, zhigh, outpath):
     """
 
     cfg   = readCFG(cfgfile)
-    files = np.array(glob("{0}/*".format(cfg['outpath'])))
+    files = np.array(glob("{0}/{1}*".format(cfg['outpath'], cfg['prefix'])))
     rad   = np.array([int(f.split('_')[-2]) for f in files])
     
     hdr, fidx  = read_radial_bin(files[0])
