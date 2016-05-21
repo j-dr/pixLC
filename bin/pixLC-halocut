@@ -2,6 +2,7 @@
 from __future__ import print_function, division
 from pixLC import readCFG
 from helpers.SimulationAnalysis import readHlist
+from mpi4py import MPI
 import numpy as np
 import pandas as pd
 import sys
@@ -19,21 +20,27 @@ if __name__=='__main__':
 
     cfg = readCFG(cfg)
 
-    for hf in halofiles:
-        fs = hf.split('.')
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
 
-        halos = readHlist(hf)
-        if fs[-1]=='parents.reformat':
-            halos = halos[pusecols]
+    if rank==0:
+
+        for hf in halofiles:
+            fs = hf.split('.')
+
+            halos = readHlist(hf)
             
-        r = np.sqrt(halos['X']**2 + halos['Y']**2 + halos['Z']**2)
-        ridx = np.where((float(cfg['rmin'])<=r) & (r<float(cfg['rmax'])))
-        halos = halos[ridx]
-
-        fs = hf.split('/')
-        hfmt = '%d %d %.3e %.2f %.2f %.3f %.3f %d %.5f %.5f %.5f %.2f %.2f %.2f %d'
-        hdr = ' '.join(pusecols)
-        if 'parents' in hf:
-            np.savetxt('/'.join(fs[:-1])+'/cut_'+fs[-1], halos, fmt=hfmt, header=hdr)
-        else:
-            fitsio.write('/'.join(fs[:-1])+'/cut_'+fs[-1]+'.fits', halos)
+            if fs[-1]=='parents.reformat':
+                halos = halos[pusecols]
+            
+            r = np.sqrt(halos['X']**2 + halos['Y']**2 + halos['Z']**2)
+            ridx = np.where((float(cfg['rmin'])<=r) & (r<float(cfg['rmax'])))
+            halos = halos[ridx]
+            
+            fs = hf.split('/')
+            hfmt = '%d %d %.3e %.2f %.2f %.3f %.3f %d %.5f %.5f %.5f %.2f %.2f %.2f %d'
+            hdr = ' '.join(pusecols)
+            if 'parents' in hf:
+                np.savetxt('/'.join(fs[:-1])+'/cut_'+fs[-1], halos, fmt=hfmt, header=hdr)
+            else:
+                fitsio.write('/'.join(fs[:-1])+'/cut_'+fs[-1]+'.fits', halos)
