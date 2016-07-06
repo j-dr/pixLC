@@ -134,7 +134,7 @@ class Buffer(object):
     Buffer object for use when recombining cells written in map step.
     Handles one type of data (pos, vel, ids) at a time.
     """
-    def __init__(self,fname,dtype,nmax=5000000):
+    def __init__(self,fname,dtype,nmax=50000000):
         """
         Initialize buffer
         
@@ -729,7 +729,7 @@ def nest2peano(pix, order):
     return result + ((face2peanoface[face])<<(2*order));
 
 def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
-                    hfilenside=None, verbose=False):
+                    hfilenside=None, verbose=False, buffersize=None):
     """
     Given a list of lightcone outputs from L-Gadget2, write the particles to radial/hpix cells 
     breaking up higher radial bins into more refined healpix cells.
@@ -742,11 +742,15 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
     lfilenside -- Nside to write files to for rmin
     rr0 -- First radius to refine nside at
     hfilenside -- The highest nside to use
+    buffersize -- The number of particles to hold in memory at once
     """
     
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
+
+    if buffersize is None:
+        buffersize = 250000
 
     blockpaths = np.genfromtxt(namefile, dtype=None)
     outbase = '{0}/{1}'.format(outpath, simlabel)
@@ -756,7 +760,7 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
 
     header = write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
                                  hfilenside=hfilenside, rr0=rr0, rmin=rmin, 
-                                 rmax=rmax, verbose=verbose)
+                                 rmax=rmax, verbose=verbose, buffersize=buffersize)
     return header
 
 
@@ -924,6 +928,11 @@ if __name__=='__main__':
     else:
         verbose = False
 
+    if 'buffersize' in pars:
+        buffersize = int(buffersize)
+    else:
+        buffersize = None
+
     try:
         os.makedirs(outpath)
     except OSError as e:
@@ -933,7 +942,7 @@ if __name__=='__main__':
 
     if not process_only:
         header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
-                                 rr0, hfilenside=4, verbose=verbose)
+                                 rr0, hfilenside=4, verbose=verbose, buffersize=buffersize)
         comm.Barrier()
     else:
         pfiles = glob(outbase+'*')
