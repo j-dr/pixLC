@@ -917,6 +917,7 @@ if __name__=='__main__':
     lfilenside = pars['lfilenside']
     rr0 = pars['rr0']
     prefix = pars['prefix']
+    buffersize = pars['buffersize']
 
     if 'process_only' in pars:
         process_only = bool(pars['process_only'])
