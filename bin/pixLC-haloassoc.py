@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from __future__ import print_function
 from helpers import SimulationAnalysis
 from fast3tree import fast3tree
