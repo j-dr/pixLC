@@ -1,7 +1,7 @@
 namefile   : C1_1050_alloct.txt 
 outpath    : /lustre/ki/pfs/jderose/simulations/Chinchilla-1/Lb1050_alloct/
 rmin       : 0.0
-rmax 	   : 4000.0
+rmax       : 4000.0
 lfilenside : 1
 rr0        : 600.0
 prefix     : snapshot_Lightcone
