@@ -23,10 +23,12 @@ if __name__ == "__main__":
     cfg = sys.argv[1]
     halofile = sys.argv[2]
 
-    cfg = pixLC.readCFG(cfg)
+    #cfg = pixLC.readCFG(cfg)
 
-    inglob = "{0}/{1}_*".format(cfg['outpath'], cfg['prefix'])
-    files  = np.array(glob(inglob))
+    #inglob = "{0}/{1}_*".format(cfg['outpath'], cfg['prefix'])
+    #files  = np.array(glob(inglob))
+    files = np.loadtxt(cfg, dtype=str)
+    print(files)
     files = files[rank::size]
 
     frad  = np.array([int(f.split('_')[-2]) for f in files])
@@ -61,9 +63,11 @@ if __name__ == "__main__":
                 tsb = time.time()
 
                 lridx = hr.searchsorted(dr * frad[fi] - rsearch)
-                hridx = hr.searchsorted(dr * frad[fi] + rsearch)
-                tree = fast3tree(hpos[lridx:hridx])
-
+                hridx = hr.searchsorted(dr * (frad[fi] + 1) + rsearch)
+                rh    = halos[lridx:hridx]
+                rhpos = hpos[lridx:hridx]
+                tree  = fast3tree(rhpos)
+                
                 tfb = time.time()
                 print("Building tree took : {0}s".format(tfb-tsb))
                 
@@ -86,16 +90,16 @@ if __name__ == "__main__":
                     #get indices of all halos within radius
                     hsi = tree.query_radius(p, rsearch)
                     #get distances to those halos
-                    di = np.sqrt((hpos[hsi,0]-p[0])**2 +
-                        (hpos[hsi,1]-p[1])**2 + (hpos[hsi,2]-p[2])**2)
+                    di = np.sqrt((rhpos[hsi,0]-p[0])**2 +
+                        (rhpos[hsi,1]-p[1])**2 + (rhpos[hsi,2]-p[2])**2)
                     #find the closest
                     d = np.min(di)
                     hi = di==d
 
-                    hpd['RHALO'][i] = d
-                    hpd['HALOID'][i] = halos[hsi[hi]]['ID']
-                    hpd['MVIR'][i] = halos[hsi[hi]]['MVIR']
-                    hpd['RVIR'][i] = halos[hsi[hi]]['RVIR']
+                    hpd['RHALO'][i]  = d
+                    hpd['HALOID'][i] = rh[hsi[hi]]['id']
+                    hpd['MVIR'][i]   = rh[hsi[hi]]['mvir']
+                    hpd['RVIR'][i]   = rh[hsi[hi]]['rvir']
 
                 #if fails, no halos within search radius
                 except Exception as e:
