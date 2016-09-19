@@ -769,7 +769,7 @@ def update_radial_counts(counts, outbase, pix, cell):
     fname = "{0}_{1}_{2}".format(outbase, pix, cell)
     hdr, idx = read_radial_bin(fname)
     hdrfmt = 'QIIffQfdddd'
-    hdr[5] = counts
+    hdr[5] += counts
 
     with open(fname, 'r+b') as fp:
         fp.write(struct.pack(hdrfmt, *hdr))
@@ -832,6 +832,69 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     for i, c in enumerate(chunks[rank]):
         update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
 
+
+def restart_process_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
+                      hfilenside=None, header=None, verbose=False):
+    """
+    Combine the buffer dumps from map_LC_to_cells into single files for 
+    each cell
+    
+    outbase -- Path to write files to
+    rmin -- Minimum radius used
+    rmax -- Maximum radius used
+    rstep -- Radial bin size
+    rr0 -- First radius to refine at 
+    lfilenside -- Nside to use for rmin
+    hfilenside -- Largest nside to use
+    header -- Default header
+    """
+    
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+    
+    assert((rmin%rstep==0) and (rmax%rstep==0))
+    #determine the nside to use for each radial bin
+    rads, rr, rnside, nr = create_refinement_plan(rmin, rmax, rstep, rr0,
+                                                   lfilenside, hfilenside=hfilenside)
+
+    #if rmin is not zero add offset so that bin index is assigned unique radial range
+    bin_offset = rmin//rstep
+    rbins = np.arange((rmax-rmin)//rstep, dtype=np.int64)
+    rcounts_r = np.zeros(len(rbins))
+    rcounts = np.zeros(len(rbins))
+
+    #delete cells that were in middle of processing
+    dfiles = glob('{0}*mg[0-9]*'.format(outbase))
+
+    for f in dfiles:
+        print('removing {0}'.format(f))
+        os.remove(f)
+
+    #get files yet to be processed
+    pfiles = glob('{0}_*_*_*')
+    r = [int(f.split('_')[-3]) for f in pfiles]
+    p = [int(f.split('_')[-2]) for f in pfiles]
+
+    cells = zip(r,p)
+    ucells = {c[:]:c for c in cells}
+    cells = ucells.values()
+    
+    chunk = cells[rank::size]
+    
+    for i, c in enumerate(chunk):
+        if i%50==0:
+            if verbose or (rank==0):
+                tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
+
+        header[2] = rnside[int(c[0]-bin_offset)]
+        rcounts[c[0]-bin_offset] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
+
+    comm.Allreduce(rcounts_r, rcounts)
+
+    for i, c in enumerate(chunks[rank]):
+        update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
+        
 
 def readCFG(filename):
     
@@ -924,6 +987,13 @@ if __name__=='__main__':
     else:
         process_only = False
 
+    if 'restart' in pars:
+        restart = bool(pars['restart'])
+        if restart:
+            process_only = True
+    else:
+        restart = False
+
     if 'verbose' in pars:
         verbose = bool(pars['verbose'])
     else:
@@ -949,5 +1019,9 @@ if __name__=='__main__':
         pfiles = glob(outbase+'*')
         header, idx = read_radial_bin(pfiles[0])
 
-    process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
-                      hfilenside=4, header=header, verbose=verbose)
+    if not restart:
+        process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
+                          hfilenside=4, header=header, verbose=verbose)
+    else:
+        restart_process_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
+                          hfilenside=4, header=header, verbose=verbose)
