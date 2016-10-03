@@ -11,6 +11,8 @@ import fitsio
 
 pusecols = ['ID', 'DESCID', 'MVIR', 'VMAX', 'VRMS', 'RVIR', 'RS', 'NP', 'X', 'Y', 'Z', 'VX', 'VY', 'VZ', 'PID']
 
+lusecols = ['ID', 'DescID', 'Mvir', 'Vmax', 'Vrms', 'Rvir', 'Rs', 'Np', 'X', 'Y', 'Z', 'VX', 'VY', 'VZ', 'JX', 'JY', 'JZ', 'Spin', 'rs_klypin', 'Mvir_all', 'M200b', 'M200c', 'M500c', 'M2500c', 'Xoff', 'Voff', 'spin_bullock', 'b_to_a', 'c_to_a']
+
 
 
 if __name__=='__main__':
@@ -28,10 +30,10 @@ if __name__=='__main__':
         for hf in halofiles:
             fs = hf.split('.')
 
-            halos = readHlist(hf)
-            
-            if fs[-1]=='parents.reformat':
-                halos = halos[pusecols]
+            if fs[-1]=='list':
+                halos = readHlist(hf, fields=lusecols)
+            else:
+                halos = readHlist(hf)
             
             r = np.sqrt(halos['X']**2 + halos['Y']**2 + halos['Z']**2)
             ridx = np.where((float(cfg['rmin'])<=r) & (r<float(cfg['rmax'])))
