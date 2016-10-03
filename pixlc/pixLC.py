@@ -22,6 +22,7 @@ def tprint(info):
         TZERO = time.time()
 
     print('[%8ds] %s' % (time.time()-TZERO,info))
+    sys.stdout.flush()
 
 __GadgetHeader_fmt = '6I6dddii6Iiiddddii6Ii'
 __finenside = 8192
@@ -334,7 +335,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
 def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1, 
                         hfilenside=None, rr0=300.0, buffersize=250000, rmin=0, 
                         rmax=4000, rstep=25, boxsize=1050, pmass=3.16,
-                        verbose=True, npurge=10):
+                        verbose=True, npurge=10, cells=None):
     """
     Read in gadget particle block, and write to the correct healpix/redshift
     cell files. 
@@ -371,6 +372,10 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         
     nfiles = len(filepaths)
     buffs = {}
+
+    if cells is not None:
+        rrun = cells[:,0]
+        prun = cells[:,1]
     
     #iterate over files, writing them to radial/healpix cells
     for fnum,filepath in enumerate(filepaths):
@@ -445,6 +450,10 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 end = idx[i+1]
             
             rind = bins['ridx'][start]
+            if cells is not None:
+                if (rind+bin_offset) not in rrun:
+                    continue
+            
             header[2] = rnside[rind]
 
             #Determine hpix cell of parts with nside for this radial bin
@@ -468,6 +477,11 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                     pend = pidx[j+1]
                     
                 pind = pix[pstart]
+
+                if cells is not None:
+                    if pind not in prun:
+                        continue
+                
                 deltan = pend - pstart
 
                 nwrit += deltan
@@ -480,8 +494,8 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
                 buffs[rind][pind].add(pos[start+pstart:start+pend,:].flatten(),
                                       vel[start+pstart:start+pend,:].flatten(),
                                       ids[start+pstart:start+pend])
-        
-        assert nwrit == len(bins)
+        if cells is None:
+            assert nwrit == len(bins)
         ntot += len(bins)
         
     nwrit = 0
@@ -492,8 +506,8 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
             nwrit += buffs[rind][pind].nwritten
             del buffs[rind][pind]
 
-    assert( nwrit == ntot )
-
+    if cells is None:
+        assert( nwrit == ntot )
 
     return header
 
@@ -569,7 +583,9 @@ def combine_cell_list(flist):
                 
     buff.write()
     #make sure buffer wrote everything we put in it
-
+    print('buff.nwritten: {0}'.format(buff.nwritten))
+    print('h[0]: {0}'.format(h[0]))
+    
     assert(buff.nwritten//6 == h[0])
 
     #create new buffer for ids
@@ -641,6 +657,7 @@ def process_cell(basepath, rbin, pix, rank=None, ncomb=10, header=None, verbose=
     os.rename(files[0], '{0}_{1}_{2}'.format(basepath, rbin, pix))
 
     for f in processed:
+        print('removing {0}'.format(f))
         os.remove(f)
 
     if verbose:
@@ -729,7 +746,7 @@ def nest2peano(pix, order):
     return result + ((face2peanoface[face])<<(2*order));
 
 def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
-                    hfilenside=None, verbose=False, buffersize=None):
+                    hfilenside=None, verbose=False, buffersize=None, cells=None):
     """
     Given a list of lightcone outputs from L-Gadget2, write the particles to radial/hpix cells 
     breaking up higher radial bins into more refined healpix cells.
@@ -760,7 +777,8 @@ def map_LC_to_cells(namefile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
 
     header = write_to_cells_buff(chunks[rank], outbase, lfilenside=lfilenside,
                                  hfilenside=hfilenside, rr0=rr0, rmin=rmin, 
-                                 rmax=rmax, verbose=verbose, buffersize=buffersize)
+                                 rmax=rmax, verbose=verbose, buffersize=buffersize,
+                                 cells=cells)
     return header
 
 
@@ -833,7 +851,41 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
         update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
 
 
-def restart_process_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
+def prep_remaining_cells(outbase):
+
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+    
+    #delete cells that were in middle of processing
+    dfiles = glob('{0}*mg[0-9]*'.format(outbase))
+
+    if rank==1:
+        print(dfiles)
+        for f in dfiles:
+            print('removing {0}'.format(f))
+            os.remove(f)
+
+    #get files yet to be processed
+    pfiles = glob('{0}_*_*_*'.format(outbase))
+    r = [int(f.split('_')[-3]) for f in pfiles]
+    p = [int(f.split('_')[-2]) for f in pfiles]
+
+    cells = zip(r,p)
+    ucells = {c[:]:c for c in cells}
+
+    cells = np.array(ucells.values())
+
+    #remove pfiles
+    if rank==1:
+        for f in pfiles:
+            print('removing {0}'.format(f))
+            os.remove(f)
+    
+    return cells
+    
+
+def restart_process_cells(outbase, rmin, rmax, cells, rstep=25.0, rr0=300.0, lfilenside=1,
                       hfilenside=None, header=None, verbose=False):
     """
     Combine the buffer dumps from map_LC_to_cells into single files for 
@@ -864,35 +916,19 @@ def restart_process_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside
     rcounts_r = np.zeros(len(rbins))
     rcounts = np.zeros(len(rbins))
 
-    #delete cells that were in middle of processing
-    dfiles = glob('{0}*mg[0-9]*'.format(outbase))
-
-    for f in dfiles:
-        print('removing {0}'.format(f))
-        os.remove(f)
-
-    #get files yet to be processed
-    pfiles = glob('{0}_*_*_*')
-    r = [int(f.split('_')[-3]) for f in pfiles]
-    p = [int(f.split('_')[-2]) for f in pfiles]
-
-    cells = zip(r,p)
-    ucells = {c[:]:c for c in cells}
-    cells = ucells.values()
-    
     chunk = cells[rank::size]
     
     for i, c in enumerate(chunk):
         if i%50==0:
             if verbose or (rank==0):
-                tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
+                tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunk)))
 
         header[2] = rnside[int(c[0]-bin_offset)]
         rcounts[c[0]-bin_offset] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
 
     comm.Allreduce(rcounts_r, rcounts)
 
-    for i, c in enumerate(chunks[rank]):
+    for i, c in enumerate(chunk):
         update_radial_counts(rcounts[c[0]-bin_offset], outbase, *c)
         
 
@@ -1012,16 +1048,30 @@ if __name__=='__main__':
     outbase = '{0}/{1}'.format(outpath,prefix)
 
     if not process_only:
+        sys.stdout.flush()
         header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
                                  rr0, hfilenside=4, verbose=verbose, buffersize=buffersize)
+        sys.stdout.flush()        
         comm.Barrier()
     else:
         pfiles = glob(outbase+'*')
         header, idx = read_radial_bin(pfiles[0])
 
     if not restart:
+        sys.stdout.flush()        
         process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
                           hfilenside=4, header=header, verbose=verbose)
     else:
+        sys.stdout.flush()        
+        cells = prep_remaining_cells(outbase)
+        sys.stdout.flush()        
+        comm.Barrier()
+        sys.stdout.flush()        
+        header = map_LC_to_cells(namefile, outpath, prefix, rmin, rmax, lfilenside,
+                                 rr0, hfilenside=4, verbose=verbose, buffersize=buffersize,
+                                 cells=cells)
+        sys.stdout.flush()        
+        comm.Barrier()        
         restart_process_cells(outbase, rmin, rmax, rstep=25.0, rr0=rr0, lfilenside=lfilenside,
-                          hfilenside=4, header=header, verbose=verbose)
+                              hfilenside=4, header=header, verbose=verbose, cells=cells)
+        sys.stdout.flush()        
