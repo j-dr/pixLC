@@ -135,7 +135,7 @@ class Buffer(object):
     Buffer object for use when recombining cells written in map step.
     Handles one type of data (pos, vel, ids) at a time.
     """
-    def __init__(self,fname,dtype,nmax=50000000):
+    def __init__(self,fname,dtype,nmax=5000000):
         """
         Initialize buffer
         
