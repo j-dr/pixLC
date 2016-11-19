@@ -18,7 +18,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import healpy as hp
-import pixLC
+from pixlc import pixLC
 from collections import namedtuple
 from optparse import OptionParser
 

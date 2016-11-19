@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-from pixLC import readCFG
+from pixlc.pixLC import readCFG
 from helpers.SimulationAnalysis import readHlist
 from mpi4py import MPI
 import numpy as np
@@ -31,7 +31,17 @@ if __name__=='__main__':
             fs = hf.split('.')
 
             if fs[-1]=='list':
-                halos = readHlist(hf, fields=lusecols)
+                with open(hf, 'r') as fp:
+                    with open('/'.join(fs[:-1])+'/cut_'+fs[-1]+'.list', 'w') as fp:
+                        for i, l in enumerate(fp):
+                            ls = l.split(' ')
+                            if '#' in ls[0]:continue
+                            x = float(ls[8])
+                            y = float(ls[9])
+                            z = float(ls[10])
+                            r = sqrt(x**2 + y**2 + z**2)
+                            if (cfg['rmin'] <= r) & (r < cfg['rmax']): wp.write(l)                        
+                return
             else:
                 halos = readHlist(hf)
             
