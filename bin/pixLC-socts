@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
-from pixLC import readCFG, create_refinement_plan
+from pixlc.pixLC import readCFG, create_refinement_plan
 import healpy as hp
 import numpy as np
 import sys
