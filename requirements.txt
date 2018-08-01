@@ -1,6 +1,6 @@
+numpy==1.14.0
 healpy==1.11.0
 fitsio==0.9.11
-numpy==1.14.0
 astropy==2.0.3
 mpi4py==3.0.0
 PyYAML==3.13
