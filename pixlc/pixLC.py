@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from __future__ import print_function, division
 from collections import namedtuple, deque
-from astropy.cosmology import FlatLambdaCDM
 if __name__=="__main__":
     from mpi4py import MPI
 from glob import glob
