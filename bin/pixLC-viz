@@ -47,7 +47,7 @@ if __name__ == '__main__':
         h = pixLCHeader._make(tuple(h))
         num_files = hp.nside2npix(h.filenside)
         
-        for fnum in xrange(num_files):            
+        for fnum in range(num_files):            
             fname = '%s_%d' % (basename,fnum)
             if options.verbose:
                 print("reading file % 4d of % 4d: '%s'" % (fnum+1,num_files,fname))
