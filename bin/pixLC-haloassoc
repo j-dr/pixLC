@@ -115,7 +115,7 @@ if __name__ == "__main__":
             fb = '/'.join(fs[:-1])
 
             print("Writing file to disk")
-            with open('{0}/hinfo_{1}'.format(fb, fs[-1]), 'w') as fp:
+            with open('{0}/hinfo_{1}'.format(fb, fs[-1]), 'wb') as fp:
                 fp.write(hpd.tobytes())
 
             tsf = time.time()
