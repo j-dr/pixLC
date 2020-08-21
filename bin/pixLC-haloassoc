@@ -10,7 +10,7 @@ from pixlc import pixLC
 import time
 import sys
 
-dr      = 25.0
+dr = 25.0
 rsearch = 15.0
 
 
@@ -31,23 +31,28 @@ if __name__ == "__main__":
     print(files)
     files = files[rank::size]
 
-    frad  = np.array([int(f.split('_')[-2]) for f in files])
-    ridx  = frad.argsort()
+    frad = np.array([int(f.split('_')[-2]) for f in files])
+    ridx = frad.argsort()
     files = files[ridx]
-    frad  = frad[ridx]
+    frad = frad[ridx]
 
-    halos = SimulationAnalysis.readHlist(halofile, ['id', 'x', 'y', 'z', 'mvir', 'rvir', 'pid'])
-    halos = halos[halos['pid']==-1]
+    halos = SimulationAnalysis.readHlist(
+        halofile, ['id', 'x', 'y', 'z', 'mvir', 'rvir', 'pid'])
+    halos = halos[halos['pid'] == -1]
 
-    hr    = np.sqrt(halos['x']**2 + halos['y']**2 + halos['z']**2)
-    ridx  = hr.argsort()
+    hr = np.sqrt(halos['x']**2 + halos['y']**2 + halos['z']**2)
+    ridx = hr.argsort()
     halos = halos[ridx]
-    hr    = hr[ridx]
+    hr = hr[ridx]
 
-    hpos  = halos[['x', 'y', 'z']].view((halos.dtype['x'],3))
+    hpos = np.zeros((len(halos), 3))
+    hpos[:, 0] = halos['x']
+    hpos[:, 1] = halos['y']
+    hpos[:, 2] = halos['z']
+#    hpos  = halos[['x', 'y', 'z']].view((halos.dtype['x'],3))
 
     firstex = True
-    
+
     print("Building tree...")
 
     with fast3tree(hpos) as tree:
@@ -57,51 +62,49 @@ if __name__ == "__main__":
         for fi, f in enumerate(files):
             print("Working on file: {0}".format(f))
 
-            
-            if (fi==0) | (frad[fi]!=frad[fi-1]):
+            if (fi == 0) | (frad[fi] != frad[fi - 1]):
                 print("Building tree...")
                 tsb = time.time()
 
                 lridx = hr.searchsorted(dr * frad[fi] - rsearch)
                 hridx = hr.searchsorted(dr * (frad[fi] + 1) + rsearch)
-                rh    = halos[lridx:hridx]
+                rh = halos[lridx:hridx]
                 rhpos = hpos[lridx:hridx]
-                tree  = fast3tree(rhpos)
-                
-                tfb = time.time()
-                print("Building tree took : {0}s".format(tfb-tsb))
-                
+                tree = fast3tree(rhpos)
 
-            tss = time.time()                
-    
-            #read in particle positions, reshape
+                tfb = time.time()
+                print("Building tree took : {0}s".format(tfb - tsb))
+
+            tss = time.time()
+
+            # read in particle positions, reshape
             hdr, idx, ppos = pixLC.read_radial_bin(f, read_pos=True)
-            ppos = ppos.reshape(-1,3)
+            ppos = ppos.reshape(-1, 3)
             hpd = np.zeros((len(ppos)),
-                              dtype=np.dtype([('HALOID', np.int64),
-                                              ('RHALO', np.float64),
-                                              ('MVIR', np.float64),
-                                              ('RVIR', np.float64)]))
-            
+                           dtype=np.dtype([('HALOID', np.int64),
+                                           ('RHALO', np.float64),
+                                           ('MVIR', np.float64),
+                                           ('RVIR', np.float64)]))
+
             print("Associating halos")
             for i, p in enumerate(ppos):
 
                 try:
-                    #get indices of all halos within radius
+                    # get indices of all halos within radius
                     hsi = tree.query_radius(p, rsearch)
-                    #get distances to those halos
-                    di = np.sqrt((rhpos[hsi,0]-p[0])**2 +
-                        (rhpos[hsi,1]-p[1])**2 + (rhpos[hsi,2]-p[2])**2)
-                    #find the closest
+                    # get distances to those halos
+                    di = np.sqrt((rhpos[hsi, 0] - p[0])**2 +
+                                 (rhpos[hsi, 1] - p[1])**2 + (rhpos[hsi, 2] - p[2])**2)
+                    # find the closest
                     d = np.min(di)
-                    hi = di==d
+                    hi = di == d
 
-                    hpd['RHALO'][i]  = d
+                    hpd['RHALO'][i] = d
                     hpd['HALOID'][i] = rh[hsi[hi]]['id']
-                    hpd['MVIR'][i]   = rh[hsi[hi]]['mvir']
-                    hpd['RVIR'][i]   = rh[hsi[hi]]['rvir']
+                    hpd['MVIR'][i] = rh[hsi[hi]]['mvir']
+                    hpd['RVIR'][i] = rh[hsi[hi]]['rvir']
 
-                #if fails, no halos within search radius
+                # if fails, no halos within search radius
                 except Exception as e:
                     if firstex:
                         print(e)
@@ -114,7 +117,7 @@ if __name__ == "__main__":
             print("Writing file to disk")
             with open('{0}/hinfo_{1}'.format(fb, fs[-1]), 'w') as fp:
                 fp.write(hpd.tobytes())
-                
+
             tsf = time.time()
 
-            print("Time for halo association: {0}s".format(tsf-tss))
+            print("Time for halo association: {0}s".format(tsf - tss))
