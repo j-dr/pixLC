@@ -60,6 +60,12 @@ if __name__ == "__main__":
         print("Finished Building tree")
 
         for fi, f in enumerate(files):
+            fs = f.split('/')
+            fb = '/'.join(fs[:-1])
+
+            if os.path.exists('{0}/hinfo_{1}'.format(fb, fs[-1])):
+                continue
+            
             print("Working on file: {0}".format(f))
 
             if (fi == 0) | (frad[fi] != frad[fi - 1]):
