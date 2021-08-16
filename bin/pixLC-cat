@@ -2,7 +2,7 @@
 """
     %prog command [options] file
     print a summary of a pixLC formatted file"""
-from __future__ import print_function
+
 import os
 import sys
 import struct

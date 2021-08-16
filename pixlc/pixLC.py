@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import print_function, division
+
 from collections import namedtuple, deque
 if __name__=="__main__":
     from mpi4py import MPI
@@ -85,7 +85,7 @@ def readGadgetSnapshot(filename, read_pos=False, read_vel=False, read_id=False,\
         f.seek(4, 1)
         #
         mass_npart = [0 if m else n for m, n in zip(header.mass, header.npart)]
-        if single_type not in range(6):
+        if single_type not in list(range(6)):
             single_type = -1
         #
         for i, b in enumerate(blocks_to_read):
@@ -385,11 +385,11 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
             #dump all buffers every npurge files to
             #get rid of data that is just sitting
             #in memory
-            for rind in buffs.keys():
-                for pind in buffs[rind].keys():
+            for rind in list(buffs.keys()):
+                for pind in list(buffs[rind].keys()):
                     buffs[rind][pind].write()
 
-        block = filepath.split('/')[-1].split('.')[-1]
+        block = filepath.split(b'/')[-1].split(b'.')[-1]
         hdr, pos, vel, ids = readGadgetSnapshot(filepath,
                                                 read_pos=True,
                                                 read_vel=True,
@@ -499,8 +499,8 @@ def write_to_cells_buff(filepaths, outbase, indexnside=16, lfilenside=1,
         
     nwrit = 0
     #write out particles left in buffers, make sure we wrote everything
-    for rind in buffs.keys():
-        for pind in buffs[rind].keys():
+    for rind in list(buffs.keys()):
+        for pind in list(buffs[rind].keys()):
             buffs[rind][pind].write()
             nwrit += buffs[rind][pind].nwritten
             del buffs[rind][pind]
@@ -870,10 +870,10 @@ def prep_remaining_cells(outbase):
     r = [int(f.split('_')[-3]) for f in pfiles]
     p = [int(f.split('_')[-2]) for f in pfiles]
 
-    cells = zip(r,p)
+    cells = list(zip(r,p))
     ucells = {c[:]:c for c in cells}
 
-    cells = np.array(ucells.values())
+    cells = np.array(list(ucells.values()))
 
     #remove pfiles
     if rank==1:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import print_function, division
+
 from astropy.cosmology import FlatLambdaCDM
 from glob import glob
 from pixlc.pixLC import readCFG, read_radial_bin

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import print_function, division
+
 from pixlc.pixLC import readCFG, create_refinement_plan
 import healpy as hp
 import numpy as np
@@ -34,7 +34,7 @@ if __name__=="__main__":
     octs = sys.argv[2:]
     octs = [int(o) for o in octs]
     cfg = readCFG(cfg)
-    if 'hfilenside' in cfg.keys():
+    if 'hfilenside' in list(cfg.keys()):
         hfnside = int(cfg['hfilenside'])
     else:
         hfnside = 4
