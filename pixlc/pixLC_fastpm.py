@@ -5,6 +5,7 @@ if __name__=="__main__":
     from mpi4py import MPI
 from glob import glob
 from copy import copy
+from yaml import Loader
 import numpy as np
 import healpy as hp
 import bigfile
@@ -13,6 +14,7 @@ import time
 import os
 import sys
 import yaml
+
 
 TZERO = None
 def tprint(info):
@@ -832,7 +834,7 @@ def restart_process_cells(outbase, rmin, rmax, cells, rstep=25.0, rr0=300.0, lfi
 def readCFG(filename):
     
     with open(filename, 'r') as fp:
-        pars = yaml.load(fp)
+        pars = yaml.load(fp, Loader=Loader)
 
     return pars
 
