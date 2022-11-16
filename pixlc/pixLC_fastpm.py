@@ -104,7 +104,7 @@ class RBuffer(object):
 
         self.pbuff = np.zeros(nmax*3,dtype='f4')
         self.vbuff = np.zeros(nmax*3,dtype='f4')
-        self.ibuff = np.zeros(nmax,dtype='u8')
+        self.ibuff = np.zeros(nmax,dtype='int64')
         self.pidx = np.zeros(12*header[1]**2,dtype='i8')
 
         self.ncurr = 0
@@ -206,7 +206,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
     hfilenside -- Max nside to use
     """
 
-    rbins = np.linspace(rmin,rmax,(rmax-rmin)//rstep+1)
+    rbins = np.linspace(rmin,rmax,int((rmax-rmin)//rstep+1))
 
     #determine refinement radii
     rr = [rr0]
@@ -214,7 +214,7 @@ def create_refinement_plan(rmin, rmax, rstep, rr0, lfilenside, hfilenside=None):
         rr.append(rr[-1]*np.sqrt(2))
         
     #determine nside of each radial bin
-    rnside = np.zeros(len(rbins)-1, dtype=np.int32)
+    rnside = np.zeros(len(rbins)-1, dtype=np.int64)
     rnside[0] = lfilenside
     nr = 0
     for i, r in enumerate(rbins[1:-1]):
@@ -275,7 +275,7 @@ def write_to_cells_buff(catalog, outbase, chunksize, nchunks,
         prun = cells[:,1]
     
     #iterate over files, writing them to radial/healpix cells
-    for fnum in range(nchunks):
+    for fnum in range(startchunk, nchunks, size):
         if verbose or (rank==0):
             tprint('    file %6d of %6d' % (fnum+1,nchunks))
 
@@ -287,9 +287,11 @@ def write_to_cells_buff(catalog, outbase, chunksize, nchunks,
                 for pind in list(buffs[rind].keys()):
                     buffs[rind][pind].write()
 
-        pos = catalog['1/Position'][(startchunk + fnum) * chunksize : (startchunk + fnum + 1) * chunksize]
-        vel = catalog['1/Velocity'][(startchunk + fnum) * chunksize : (startchunk + fnum + 1) * chunksize]
-        ids = catalog['1/ID'][(startchunk + fnum) * chunksize : (startchunk + fnum + 1) * chunksize]
+        start = int(fnum * chunksize)
+        stop = int((fnum + 1) * chunksize)        
+        pos = catalog['1/Position'][start:stop]
+        vel = catalog['1/Velocity'][start:stop]
+        ids = catalog['1/ID'][start:stop]
         
         header[-1] = catalog['Header'].attrs['HubbleParam']
         header[-2] = catalog['Header'].attrs['OmegaLambda']
@@ -666,12 +668,12 @@ def map_LC_to_cells(nbodyfile, outpath, simlabel, rmin, rmax, lfilenside, rr0,
         buffersize = 250000
 
     if chunksize is None:
-        chunksize = 1e7
+        chunksize = int(5e6)
         
     catalog = bigfile.File(nbodyfile, create=False)
-    nchunks = (catalog['1/Positions'].size + chunksize - 1) // chunksize
+    nchunks = int((catalog['1/Position'].size + chunksize - 1) // chunksize)
     outbase = '{0}/{1}'.format(outpath, simlabel)
-    startchunk = nchunks * rank
+    startchunk = rank
 
     header = write_to_cells_buff(catalog, outbase, chunksize, nchunks, 
                                  startchunk, lfilenside=lfilenside,
@@ -724,10 +726,10 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
     rcounts_r = np.zeros(len(rbins))
     rcounts = np.zeros(len(rbins))
     #determine number of pixels for each radial bin
-    rnpix = 12*rnside**2
+    rnpix = (12*rnside**2).astype(np.int64)
     
     idx = np.cumsum(rnpix)
-    idx = np.hstack([np.zeros(1),idx])
+    idx = np.hstack([np.zeros(1,dtype=np.int64),idx])
     cells = np.ndarray((idx[-1],2), dtype=np.int64)
 
     for i, r in enumerate(rbins):
@@ -742,7 +744,7 @@ def process_all_cells(outbase, rmin, rmax, rstep=25.0, rr0=300.0, lfilenside=1,
                 tprint('    Worker {0} has processed {1}% of assigned cells'.format(rank, i/len(chunks[rank])))
 
         header[2] = rnside[int(c[0]-bin_offset)]
-        rcounts[c[0]-bin_offset] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
+        rcounts[int(c[0]-bin_offset)] += process_cell(outbase, *c, rank=rank, header=header, verbose=verbose)
 
     comm.Allreduce(rcounts_r, rcounts)
 
